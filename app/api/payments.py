@@ -51,10 +51,11 @@ async def create_checkout(
     cancel_url = "http://localhost:3000/cancel"
 
     session = create_checkout_session(
-        customer_email=user.email,
-        price_id=price_id,
-        success_url=success_url,
-        cancel_url=cancel_url,
+    customer_email=user.email,
+    price_id=price_id,
+    plan=body.plan,
+    success_url=success_url,
+    cancel_url=cancel_url,
     )
 
     return {"checkout_url": session.url}
