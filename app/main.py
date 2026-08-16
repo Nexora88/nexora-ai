@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.database import init_db
-from app.api import auth, chat, payments, webhooks
+from app.api import auth, chat, payments, webhooks, market
 
 settings = get_settings()
 
@@ -36,6 +36,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(payments.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
+app.include_router(market.router, prefix="/api/v1")
 
 
 @app.get("/")
