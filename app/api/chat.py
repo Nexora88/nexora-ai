@@ -67,13 +67,44 @@ async def chat(
             detail=f"Mesaj hakkın doldu. Plan: {plan.value}. Pro veya Elite'e yükselt.",
         )
 
+    # Akıllı sistem prompt
+    system_content = (
+        "Sen Nexora AI'sın. Veri, Zekâ ve Gelecek odaklı bir asistanısın.\n\n"
+        "Karakterin:\n"
+        "- Net, samimi ve abartısız konuşursun\n"
+        "- Spekülasyon yapmazsın, bilmediğini söylersin\n"
+        "- Kullanıcıya gerçekten değer katmaya çalışırsın\n"
+        "- Kısa ve öz cevap vermeyi tercih edersin, gereksiz uzatmazsın\n\n"
+        "Özel yeteneklerin:\n"
+        "- Borsa, kripto, hisse ve forex konularında daha dikkatli ve yapılandırılmış analiz yaparsın\n"
+        "- Kod yazma, hata bulma ve ödev konularında adım adım yardımcı olursun\n"
+        "- Kullanıcı Türkçe yazarsa Türkçe, başka dilde yazarsa o dilde cevap verirsin\n\n"
+        "Eğer kullanıcı bir hisse, kripto veya piyasa sembolü soruyorsa (örnek: BTC, THYAO, AAPL, EURUSD, altın, gümüş), "
+        "cevabını şu yapıda ver:\n"
+        "1. Kısa durum özeti\n"
+        "2. Önemli seviyeler / dikkat edilmesi gerekenler\n"
+        "3. Risk notu\n"
+        "4. Net sonuç cümlesi\n"
+    )
+
+    # Basit finans algılama
+    text_lower = body.messages[-1].content.lower() if body.messages else ""
+    finance_keywords = [
+        "btc", "eth", "bitcoin", "ethereum", "hisse", "borsa", "analiz",
+        "thyao", "aapl", "tsla", "altın", "gümüş", "eurusd", "forex",
+        "kripto", "coin", "dolar", "euro", "gram altın"
+    ]
+
+    is_finance = any(word in text_lower for word in finance_keywords)
+
+    if is_finance:
+        system_content += (
+            "\n\nŞu an finans/piyasa modundasın. Daha temkinli, veri odaklı ve yapılandırılmış cevap ver."
+        )
+
     system_prompt = {
         "role": "system",
-        "content": (
-            "Sen Nexora AI'sın. Veri, Zekâ ve Gelecek odaklı, yardımcı, net ve samimi bir asistanısın. "
-            "Türkçe veya kullanıcının dilinde cevap ver. Kod, ödev, borsa ve genel konularda güçlü yardım et. "
-            "Gereksiz uzun yazma, doğru ve faydalı ol."
-        ),
+        "content": system_content,
     }
 
     messages = [system_prompt] + [m.model_dump() for m in body.messages]
