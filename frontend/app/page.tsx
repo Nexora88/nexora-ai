@@ -71,6 +71,22 @@ export default function Home() {
     }
   };
 
+  const upgrade = async (plan: "pro" | "elite") => {
+    if (!token) return;
+    try {
+      const res = await axios.post(
+        `${API_URL}/payments/create-checkout`,
+        { plan },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data.checkout_url) {
+        window.location.href = res.data.checkout_url;
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Ödeme başlatılamadı");
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("nexora_token");
     setToken(null);
@@ -134,9 +150,26 @@ export default function Home() {
             </span>
           )}
         </div>
-        <button onClick={logout} style={{ ...buttonStyle, padding: "6px 14px", fontSize: 14 }}>
-          Çıkış
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => upgrade("pro")}
+            style={{ ...buttonStyle, padding: "6px 12px", fontSize: 13, width: "auto" }}
+          >
+            Pro ($12)
+          </button>
+          <button
+            onClick={() => upgrade("elite")}
+            style={{ ...buttonStyle, padding: "6px 12px", fontSize: 13, width: "auto", background: "linear-gradient(90deg, #7b2cff, #ff00aa)" }}
+          >
+            Elite ($29)
+          </button>
+          <button
+            onClick={logout}
+            style={{ ...buttonStyle, padding: "6px 14px", fontSize: 14, width: "auto", background: "#333", color: "#fff" }}
+          >
+            Çıkış
+          </button>
+        </div>
       </header>
 
       <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
@@ -176,7 +209,7 @@ export default function Home() {
           placeholder="Mesajını yaz..."
           style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
         />
-        <button onClick={sendMessage} disabled={loading} style={buttonStyle}>
+        <button onClick={sendMessage} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "12px 20px" }}>
           Gönder
         </button>
       </div>
