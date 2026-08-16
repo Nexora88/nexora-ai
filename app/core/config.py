@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
 
+    # Stripe
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_PRO_PRICE_ID: Optional[str] = None
+    STRIPE_ELITE_PRICE_ID: Optional[str] = None
+
     FREE_MESSAGES_LIMIT: int = 5
     PRO_MESSAGES_LIMIT: int = 400
     ELITE_MESSAGES_LIMIT: int = 2000
