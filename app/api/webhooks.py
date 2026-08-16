@@ -27,27 +27,40 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        customer_email = session.get("customer_email")
-        price_id = session["display_items"][0]["price"]["id"] if session.get("display_items") else None
+        customer_email = session.get("customer_email") or session.get("customer_details", {}).get("email")
 
-        # Basit eşleme
+        # Price ID'yi bul
+        price_id = None
+        if session.get("line_items"):
+            # Eski format
+            pass
+        # Checkout session'dan price bilgisini almak için genişletilmiş bilgi gerekebilir
+        # Şimdilik metadata veya client_reference_id ile de yapılabilir
+        # Basit çözüm:
+        mode = session.get("mode")
+        # Geçici olarak amount_total ile ayırt edebiliriz (ileride metadata ekleyeceğiz)
+        
         new_plan = PlanType.FREE.value
         new_limit = settings.FREE_MESSAGES_LIMIT
 
-        if price_id == settings.STRIPE_PRO_PRICE_ID:
+        # Şimdilik metadata üzerinden gideceğiz (daha güvenli)
+        metadata = session.get("metadata", {})
+        plan_from_meta = metadata.get("plan")
+
+        if plan_from_meta == "pro":
             new_plan = PlanType.PRO.value
             new_limit = settings.PRO_MESSAGES_LIMIT
-        elif price_id == settings.STRIPE_ELITE_PRICE_ID:
+        elif plan_from_meta == "elite":
             new_plan = PlanType.ELITE.value
             new_limit = settings.ELITE_MESSAGES_LIMIT
 
-        if customer_email:
+        if customer_email and new_plan != PlanType.FREE.value:
             result = await db.execute(select(User).where(User.email == customer_email))
             user = result.scalar_one_or_none()
             if user:
                 user.plan = new_plan
                 user.messages_limit = new_limit
-                user.messages_used = 0  # Yeni plana geçince hakkı sıfırla
+                user.messages_used = 0
                 await db.commit()
 
     return {"status": "success"}
