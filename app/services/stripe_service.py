@@ -5,7 +5,7 @@ settings = get_settings()
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
-def create_checkout_session(customer_email: str, price_id: str, success_url: str, cancel_url: str):
+def create_checkout_session(customer_email: str, price_id: str, plan: str, success_url: str, cancel_url: str):
     session = stripe.checkout.Session.create(
         customer_email=customer_email,
         payment_method_types=["card"],
@@ -13,10 +13,6 @@ def create_checkout_session(customer_email: str, price_id: str, success_url: str
         mode="subscription",
         success_url=success_url,
         cancel_url=cancel_url,
+        metadata={"plan": plan},  # Önemli
     )
     return session
-
-
-def create_customer(email: str, name: str = None):
-    customer = stripe.Customer.create(email=email, name=name)
-    return customer
