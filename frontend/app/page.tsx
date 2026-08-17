@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 
-const API_URL = "http://localhost:8000/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -16,6 +16,8 @@ export default function Home() {
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [showMarket, setShowMarket] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("nexora_token");
@@ -71,6 +73,29 @@ export default function Home() {
     }
   };
 
+  const analyzeMarket = async () => {
+    if (!symbol.trim() || !token) return;
+    setLoading(true);
+    setError("");
+    setShowMarket(false);
+
+    try {
+      const res = await axios.post(
+        `${API_URL}/market/analyze`,
+        { symbol: symbol.trim() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const analysis = `📊 **${res.data.symbol} Analizi**\n\n${res.data.analysis}`;
+      setMessages((prev) => [...prev, { role: "assistant", content: analysis }]);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Analiz yapılamadı");
+    } finally {
+      setLoading(false);
+      setSymbol("");
+    }
+  };
+
   const upgrade = async (plan: "pro" | "elite") => {
     if (!token) return;
     try {
@@ -96,32 +121,18 @@ export default function Home() {
   if (!token) {
     return (
       <div style={{ maxWidth: 400, margin: "80px auto", padding: 24 }}>
-        <h1 style={{ textAlign: "center", marginBottom: 8 }}>Nexora AI</h1>
+        <h1 style={{ textAlign: "center", marginBottom: 8, background: "linear-gradient(90deg, #00f0ff, #7b2cff)", WebkitBackgroundClip: "text", color: "transparent" }}>
+          Nexora AI
+        </h1>
         <p style={{ textAlign: "center", color: "#888", marginBottom: 32 }}>
           Veri • Zekâ • Gelecek
         </p>
 
         {!isLogin && (
-          <input
-            placeholder="Ad Soyad"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            style={inputStyle}
-          />
+          <input placeholder="Ad Soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
         )}
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={inputStyle}
-        />
-        <input
-          type="password"
-          placeholder="Şifre"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={inputStyle}
-        />
+        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+        <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
 
         {error && <p style={{ color: "#ff6b6b", marginBottom: 12 }}>{error}</p>}
 
@@ -129,10 +140,7 @@ export default function Home() {
           {isLogin ? "Giriş Yap" : "Kayıt Ol"}
         </button>
 
-        <p
-          style={{ textAlign: "center", marginTop: 16, cursor: "pointer", color: "#00f0ff" }}
-          onClick={() => setIsLogin(!isLogin)}
-        >
+        <p style={{ textAlign: "center", marginTop: 16, cursor: "pointer", color: "#00f0ff" }} onClick={() => setIsLogin(!isLogin)}>
           {isLogin ? "Hesabın yok mu? Kayıt ol" : "Zaten hesabın var mı? Giriş yap"}
         </p>
       </div>
@@ -141,67 +149,72 @@ export default function Home() {
 
   return (
     <div style={{ maxWidth: 800, margin: "0 auto", height: "100vh", display: "flex", flexDirection: "column" }}>
-      <header style={{ padding: "16px 24px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      {/* Header */}
+      <header style={{ padding: "14px 20px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div>
-          <strong>Nexora AI</strong>
+          <strong style={{ fontSize: 18 }}>Nexora AI</strong>
           {remaining !== null && (
-            <span style={{ marginLeft: 12, color: "#888", fontSize: 14 }}>
-              Kalan hak: {remaining}
-            </span>
+            <span style={{ marginLeft: 10, color: "#888", fontSize: 13 }}>Kalan: {remaining}</span>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={() => upgrade("pro")}
-            style={{ ...buttonStyle, padding: "6px 12px", fontSize: 13, width: "auto" }}
-          >
-            Pro ($12)
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={() => setShowMarket(!showMarket)} style={{ ...smallBtn, background: "#1a1a2e" }}>
+            📊 Borsa
           </button>
-          <button
-            onClick={() => upgrade("elite")}
-            style={{ ...buttonStyle, padding: "6px 12px", fontSize: 13, width: "auto", background: "linear-gradient(90deg, #7b2cff, #ff00aa)" }}
-          >
-            Elite ($29)
-          </button>
-          <button
-            onClick={logout}
-            style={{ ...buttonStyle, padding: "6px 14px", fontSize: 14, width: "auto", background: "#333", color: "#fff" }}
-          >
-            Çıkış
-          </button>
+          <button onClick={() => upgrade("pro")} style={smallBtn}>Pro $12</button>
+          <button onClick={() => upgrade("elite")} style={{ ...smallBtn, background: "linear-gradient(90deg, #7b2cff, #ff00aa)" }}>Elite $29</button>
+          <button onClick={logout} style={{ ...smallBtn, background: "#333", color: "#fff" }}>Çıkış</button>
         </div>
       </header>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+      {/* Borsa Kutusu */}
+      {showMarket && (
+        <div style={{ padding: "12px 20px", background: "#111", borderBottom: "1px solid #222", display: "flex", gap: 8 }}>
+          <input
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            placeholder="Sembol gir (BTC, ETH, SOL...)"
+            style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+            onKeyDown={(e) => e.key === "Enter" && analyzeMarket()}
+          />
+          <button onClick={analyzeMarket} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "10px 16px" }}>
+            Analiz Et
+          </button>
+        </div>
+      )}
+
+      {/* Mesajlar */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
         {messages.length === 0 && (
-          <p style={{ color: "#666", textAlign: "center", marginTop: 40 }}>
-            Merhaba! Size nasıl yardımcı olabilirim?
+          <p style={{ color: "#555", textAlign: "center", marginTop: 60 }}>
+            Merhaba! Sohbet edebilir veya yukarıdan borsa analizi yapabilirsin.
           </p>
         )}
         {messages.map((m, i) => (
           <div
             key={i}
             style={{
-              marginBottom: 16,
+              marginBottom: 14,
               padding: 12,
-              borderRadius: 8,
+              borderRadius: 10,
               background: m.role === "user" ? "#1a1a2e" : "#16213e",
-              maxWidth: "85%",
+              maxWidth: "88%",
               marginLeft: m.role === "user" ? "auto" : 0,
             }}
           >
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: "#777", marginBottom: 4 }}>
               {m.role === "user" ? "Sen" : "Nexora"}
             </div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.content}</div>
           </div>
         ))}
         {loading && <p style={{ color: "#888" }}>Düşünüyor...</p>}
       </div>
 
-      {error && <p style={{ color: "#ff6b6b", padding: "0 24px" }}>{error}</p>}
+      {error && <p style={{ color: "#ff6b6b", padding: "0 20px 8px" }}>{error}</p>}
 
-      <div style={{ padding: 16, borderTop: "1px solid #222", display: "flex", gap: 8 }}>
+      {/* Input */}
+      <div style={{ padding: 14, borderTop: "1px solid #222", display: "flex", gap: 8 }}>
         <input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
@@ -209,7 +222,7 @@ export default function Home() {
           placeholder="Mesajını yaz..."
           style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
         />
-        <button onClick={sendMessage} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "12px 20px" }}>
+        <button onClick={sendMessage} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "12px 18px" }}>
           Gönder
         </button>
       </div>
@@ -219,23 +232,33 @@ export default function Home() {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "12px 16px",
-  marginBottom: 12,
+  padding: "11px 14px",
+  marginBottom: 10,
   borderRadius: 8,
   border: "1px solid #333",
   background: "#1a1a2e",
   color: "#fff",
-  fontSize: 16,
+  fontSize: 15,
 };
 
 const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "12px",
+  padding: "11px 16px",
   borderRadius: 8,
   border: "none",
   background: "linear-gradient(90deg, #00f0ff, #7b2cff)",
   color: "#000",
   fontWeight: 600,
   cursor: "pointer",
-  fontSize: 16,
+  fontSize: 15,
+};
+
+const smallBtn: React.CSSProperties = {
+  padding: "6px 11px",
+  borderRadius: 6,
+  border: "none",
+  background: "linear-gradient(90deg, #00f0ff, #7b2cff)",
+  color: "#000",
+  fontWeight: 600,
+  cursor: "pointer",
+  fontSize: 12,
 };
