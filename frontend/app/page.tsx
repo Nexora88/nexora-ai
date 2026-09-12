@@ -3,7 +3,11 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+// Production'da frontend ve FastAPI aynı Vercel domaininde çalışır.
+// Böylece yanlış/unutulmuş NEXT_PUBLIC_API_URL değerleri login'i bozmaz.
+const API_URL = process.env.NODE_ENV === "production"
+  ? "/api/v1"
+  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1");
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -26,6 +30,7 @@ export default function Home() {
 
   const handleAuth = async () => {
     setError("");
+    setLoading(true);
     try {
       if (isLogin) {
         const res = await axios.post(`${API_URL}/auth/login`, { email, password });
@@ -41,7 +46,16 @@ export default function Home() {
         setError("Kayıt başarılı! Şimdi giriş yap.");
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Bir hata oluştu");
+      console.error("Nexora auth error:", err);
+      if (err.response) {
+        setError(`Hata ${err.response.status}: ${err.response.data?.detail || "Sunucu hatası"}`);
+      } else if (err.request) {
+        setError("Sunucuya ulaşılamıyor. API bağlantısını kontrol edin.");
+      } else {
+        setError(err.message || "Bir hata oluştu");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -136,8 +150,8 @@ export default function Home() {
 
         {error && <p style={{ color: "#ff6b6b", marginBottom: 12 }}>{error}</p>}
 
-        <button onClick={handleAuth} style={buttonStyle}>
-          {isLogin ? "Giriş Yap" : "Kayıt Ol"}
+        <button onClick={handleAuth} disabled={loading} style={{ ...buttonStyle, opacity: loading ? 0.7 : 1 }}>
+          {loading ? "Bekleyin..." : isLogin ? "Giriş Yap" : "Kayıt Ol"}
         </button>
 
         <p style={{ textAlign: "center", marginTop: 16, cursor: "pointer", color: "#00f0ff" }} onClick={() => setIsLogin(!isLogin)}>
