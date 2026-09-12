@@ -29,5 +29,10 @@ async def get_db():
 
 
 async def init_db():
+    # Import models before create_all so their tables are registered
+    # in Base.metadata. Without this import, SQLAlchemy can start with
+    # an empty metadata collection and the users table is never created.
+    from app.models import db_models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
