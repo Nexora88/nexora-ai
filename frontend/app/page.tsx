@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -149,7 +149,6 @@ export default function Home() {
 
   return (
     <div style={{ maxWidth: 800, margin: "0 auto", height: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
       <header style={{ padding: "14px 20px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div>
           <strong style={{ fontSize: 18 }}>Nexora AI</strong>
@@ -158,53 +157,25 @@ export default function Home() {
           )}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={() => setShowMarket(!showMarket)} style={{ ...smallBtn, background: "#1a1a2e" }}>
-            📊 Borsa
-          </button>
+          <button onClick={() => setShowMarket(!showMarket)} style={{ ...smallBtn, background: "#1a1a2e" }}>📊 Borsa</button>
           <button onClick={() => upgrade("pro")} style={smallBtn}>Pro $12</button>
           <button onClick={() => upgrade("elite")} style={{ ...smallBtn, background: "linear-gradient(90deg, #7b2cff, #ff00aa)" }}>Elite $29</button>
           <button onClick={logout} style={{ ...smallBtn, background: "#333", color: "#fff" }}>Çıkış</button>
         </div>
       </header>
 
-      {/* Borsa Kutusu */}
       {showMarket && (
         <div style={{ padding: "12px 20px", background: "#111", borderBottom: "1px solid #222", display: "flex", gap: 8 }}>
-          <input
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            placeholder="Sembol gir (BTC, ETH, SOL...)"
-            style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-            onKeyDown={(e) => e.key === "Enter" && analyzeMarket()}
-          />
-          <button onClick={analyzeMarket} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "10px 16px" }}>
-            Analiz Et
-          </button>
+          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Sembol gir (BTC, ETH, SOL...)" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} onKeyDown={(e) => e.key === "Enter" && analyzeMarket()} />
+          <button onClick={analyzeMarket} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "10px 16px" }}>Analiz Et</button>
         </div>
       )}
 
-      {/* Mesajlar */}
       <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-        {messages.length === 0 && (
-          <p style={{ color: "#555", textAlign: "center", marginTop: 60 }}>
-            Merhaba! Sohbet edebilir veya yukarıdan borsa analizi yapabilirsin.
-          </p>
-        )}
+        {messages.length === 0 && <p style={{ color: "#555", textAlign: "center", marginTop: 60 }}>Merhaba! Sohbet edebilir veya yukarıdan borsa analizi yapabilirsin.</p>}
         {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              marginBottom: 14,
-              padding: 12,
-              borderRadius: 10,
-              background: m.role === "user" ? "#1a1a2e" : "#16213e",
-              maxWidth: "88%",
-              marginLeft: m.role === "user" ? "auto" : 0,
-            }}
-          >
-            <div style={{ fontSize: 11, color: "#777", marginBottom: 4 }}>
-              {m.role === "user" ? "Sen" : "Nexora"}
-            </div>
+          <div key={i} style={{ marginBottom: 14, padding: 12, borderRadius: 10, background: m.role === "user" ? "#1a1a2e" : "#16213e", maxWidth: "88%", marginLeft: m.role === "user" ? "auto" : 0 }}>
+            <div style={{ fontSize: 11, color: "#777", marginBottom: 4 }}>{m.role === "user" ? "Sen" : "Nexora"}</div>
             <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.content}</div>
           </div>
         ))}
@@ -213,52 +184,27 @@ export default function Home() {
 
       {error && <p style={{ color: "#ff6b6b", padding: "0 20px 8px" }}>{error}</p>}
 
-      {/* Input */}
       <div style={{ padding: 14, borderTop: "1px solid #222", display: "flex", gap: 8 }}>
-        <input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
-          placeholder="Mesajını yaz..."
-          style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-        />
-        <button onClick={sendMessage} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "12px 18px" }}>
-          Gönder
-        </button>
+        <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()} placeholder="Mesajını yaz..." style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+        <button onClick={sendMessage} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "12px 18px" }}>Gönder</button>
       </div>
     </div>
   );
 }
 
 const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "11px 14px",
-  marginBottom: 10,
-  borderRadius: 8,
-  border: "1px solid #333",
-  background: "#1a1a2e",
-  color: "#fff",
-  fontSize: 15,
+  width: "100%", padding: "11px 14px", marginBottom: 10, borderRadius: 8,
+  border: "1px solid #333", background: "#1a1a2e", color: "#fff", fontSize: 15,
 };
 
 const buttonStyle: React.CSSProperties = {
-  padding: "11px 16px",
-  borderRadius: 8,
-  border: "none",
-  background: "linear-gradient(90deg, #00f0ff, #7b2cff)",
-  color: "#000",
-  fontWeight: 600,
-  cursor: "pointer",
-  fontSize: 15,
+  padding: "11px 16px", borderRadius: 8, border: "none",
+  background: "linear-gradient(90deg, #00f0ff, #7b2cff)", color: "#000",
+  fontWeight: 600, cursor: "pointer", fontSize: 15,
 };
 
 const smallBtn: React.CSSProperties = {
-  padding: "6px 11px",
-  borderRadius: 6,
-  border: "none",
-  background: "linear-gradient(90deg, #00f0ff, #7b2cff)",
-  color: "#000",
-  fontWeight: 600,
-  cursor: "pointer",
-  fontSize: 12,
+  padding: "6px 11px", borderRadius: 6, border: "none",
+  background: "linear-gradient(90deg, #00f0ff, #7b2cff)", color: "#000",
+  fontWeight: 600, cursor: "pointer", fontSize: 12,
 };
