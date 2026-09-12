@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
@@ -9,7 +10,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     DEBUG: bool = True
 
-    DATABASE_URL: str = "sqlite+aiosqlite:///./nexora.db"
+    # Vercel's deployed filesystem is read-only; /tmp is writable at runtime.
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "sqlite+aiosqlite:////tmp/nexora.db" if os.getenv("VERCEL") == "1" else "sqlite+aiosqlite:///./nexora.db",
+    )
 
     JWT_SECRET: str = "change-me-jwt-secret"
     JWT_ALGORITHM: str = "HS256"
