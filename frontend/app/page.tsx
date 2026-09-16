@@ -1,41 +1,87 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
-// Production'da frontend ve FastAPI aynı Vercel domaininde çalışır.
-// Böylece yanlış/unutulmuş NEXT_PUBLIC_API_URL değerleri login'i bozmaz.
-const API_URL = process.env.NODE_ENV === "production"
-  ? "/api/v1"
-  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1");
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
+type Phase = "boot" | "auth" | "app";
+
+type ChatMsg = {
+  role: "user" | "assistant";
+  content: string;
+  model_used?: string;
+  query_type?: string;
+  token_cost?: number;
+};
+
+const LOADING_STEPS = [
+  "Core bağlantısı kuruluyor…",
+  "Sorgu türü analiz ediliyor…",
+  "Uygun zeka motoru seçiliyor…",
+  "Yanıt üretiliyor…",
+];
 
 export default function Home() {
+  const [phase, setPhase] = useState<Phase>("boot");
+  const [bootStep, setBootStep] = useState(0);
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [isLogin, setIsLogin] = useState(true);
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [tokensLeft, setTokensLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState("");
   const [symbol, setSymbol] = useState("");
   const [showMarket, setShowMarket] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("nexora_token");
-    if (saved) setToken(saved);
+    const timers = [
+      setTimeout(() => setBootStep(1), 600),
+      setTimeout(() => setBootStep(2), 2000),
+      setTimeout(() => setBootStep(3), 4000),
+      setTimeout(() => setBootStep(4), 6200),
+      setTimeout(() => setBootStep(5), 8500),
+      setTimeout(() => {
+        const saved = localStorage.getItem("nexora_token");
+        if (saved) {
+          setToken(saved);
+          setPhase("app");
+        } else setPhase("auth");
+      }, 11000),
+    ];
+    return () => timers.forEach(clearTimeout);
   }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading, loadingStep]);
+
+  // Yükleme animasyonu adımları
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+    const id = setInterval(() => {
+      setLoadingStep((s) => (s + 1) % LOADING_STEPS.length);
+    }, 1600);
+    return () => clearInterval(id);
+  }, [loading]);
 
   const handleAuth = async () => {
     setError("");
-    setLoading(true);
     try {
       if (isLogin) {
         const res = await axios.post(`${API_URL}/auth/login`, { email, password });
         localStorage.setItem("nexora_token", res.data.access_token);
         setToken(res.data.access_token);
+        setPhase("app");
       } else {
         await axios.post(`${API_URL}/auth/register`, {
           email,
@@ -43,28 +89,18 @@ export default function Home() {
           full_name: fullName,
         });
         setIsLogin(true);
-        setError("Kayıt başarılı! Şimdi giriş yap.");
+        setError("Kayıt tamam. 50 token yüklendi — şimdi giriş yap.");
       }
     } catch (err: any) {
-      console.error("Nexora auth error:", err);
-      if (err.response) {
-        setError(`Hata ${err.response.status}: ${err.response.data?.detail || "Sunucu hatası"}`);
-      } else if (err.request) {
-        setError("Sunucuya ulaşılamıyor. API bağlantısını kontrol edin.");
-      } else {
-        setError(err.message || "Bir hata oluştu");
-      }
-    } finally {
-      setLoading(false);
+      setError(err.response?.data?.detail || "Bir hata oluştu");
     }
   };
 
   const sendMessage = async () => {
-    if (!message.trim() || !token) return;
+    if (!message.trim() || !token || loading) return;
     setLoading(true);
     setError("");
-
-    const newMessages = [...messages, { role: "user", content: message }];
+    const newMessages: ChatMsg[] = [...messages, { role: "user", content: message }];
     setMessages(newMessages);
     setMessage("");
 
@@ -78,8 +114,17 @@ export default function Home() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setMessages([...newMessages, { role: "assistant", content: res.data.content }]);
-      setRemaining(res.data.remaining);
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: res.data.content,
+          model_used: res.data.model_used,
+          query_type: res.data.query_type,
+          token_cost: res.data.token_cost,
+        },
+      ]);
+      if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Mesaj gönderilemedi");
     } finally {
@@ -88,20 +133,25 @@ export default function Home() {
   };
 
   const analyzeMarket = async () => {
-    if (!symbol.trim() || !token) return;
+    if (!symbol.trim() || !token || loading) return;
     setLoading(true);
     setError("");
     setShowMarket(false);
-
     try {
       const res = await axios.post(
         `${API_URL}/market/analyze`,
         { symbol: symbol.trim() },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      const analysis = `📊 **${res.data.symbol} Analizi**\n\n${res.data.analysis}`;
-      setMessages((prev) => [...prev, { role: "assistant", content: analysis }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `ANALİZ — ${res.data.symbol}\n\n${res.data.analysis}`,
+          query_type: "finance",
+          token_cost: 3,
+        },
+      ]);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Analiz yapılamadı");
     } finally {
@@ -118,9 +168,7 @@ export default function Home() {
         { plan },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (res.data.checkout_url) {
-        window.location.href = res.data.checkout_url;
-      }
+      if (res.data.checkout_url) window.location.href = res.data.checkout_url;
     } catch (err: any) {
       setError(err.response?.data?.detail || "Ödeme başlatılamadı");
     }
@@ -130,95 +178,332 @@ export default function Home() {
     localStorage.removeItem("nexora_token");
     setToken(null);
     setMessages([]);
+    setTokensLeft(null);
+    setPhase("auth");
   };
 
-  if (!token) {
+  const shortModel = (m?: string) => {
+    if (!m) return "nexora-router";
+    const part = m.split("/").pop() || m;
+    return part.length > 28 ? part.slice(0, 26) + "…" : part;
+  };
+
+  const typeLabel = (t?: string) => {
+    if (t === "finance") return "finans";
+    if (t === "code") return "kod";
+    if (t === "deep") return "derin";
+    return "hızlı";
+  };
+
+  // ——— BOOT ———
+  if (phase === "boot") {
     return (
-      <div style={{ maxWidth: 400, margin: "80px auto", padding: 24 }}>
-        <h1 style={{ textAlign: "center", marginBottom: 8, background: "linear-gradient(90deg, #00f0ff, #7b2cff)", WebkitBackgroundClip: "text", color: "transparent" }}>
-          Nexora AI
-        </h1>
-        <p style={{ textAlign: "center", color: "#888", marginBottom: 32 }}>
-          Veri • Zekâ • Gelecek
-        </p>
-
-        {!isLogin && (
-          <input placeholder="Ad Soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
+      <div style={s.bootScreen}>
+        {bootStep >= 1 && (
+          <div style={s.bootCenter}>
+            <div style={s.bootBrand}>NEXORA</div>
+            {bootStep === 1 && <div style={s.bootMuted}>Initializing…</div>}
+          </div>
         )}
-        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
-        <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
-
-        {error && <p style={{ color: "#ff6b6b", marginBottom: 12 }}>{error}</p>}
-
-        <button onClick={handleAuth} disabled={loading} style={{ ...buttonStyle, opacity: loading ? 0.7 : 1 }}>
-          {loading ? "Bekleyin..." : isLogin ? "Giriş Yap" : "Kayıt Ol"}
-        </button>
-
-        <p style={{ textAlign: "center", marginTop: 16, cursor: "pointer", color: "#00f0ff" }} onClick={() => setIsLogin(!isLogin)}>
-          {isLogin ? "Hesabın yok mu? Kayıt ol" : "Zaten hesabın var mı? Giriş yap"}
-        </p>
+        {bootStep >= 2 && bootStep < 4 && (
+          <div style={s.bootCenter}>
+            <div style={s.bootBrand}>NEXORA CORE</div>
+            <div style={s.bootLines}>
+              <div>Initializing Nexora Core…</div>
+              <div>Loading intelligence modules…</div>
+              {bootStep >= 3 && <div>Connecting reasoning engine…</div>}
+              {bootStep >= 3 && <div>Building knowledge map…</div>}
+            </div>
+          </div>
+        )}
+        {bootStep >= 4 && bootStep < 5 && (
+          <div style={s.bootCenter}>
+            <div style={s.bootBrand}>SYSTEM BOOT</div>
+            <div style={s.bootChecks}>
+              <div>✓ Neural Engine Connected</div>
+              <div>✓ Reasoning Layer Active</div>
+              <div>✓ Knowledge Network Online</div>
+              <div>✓ Intelligence Core Ready</div>
+            </div>
+          </div>
+        )}
+        {bootStep >= 5 && (
+          <div style={s.bootCenter}>
+            <div style={s.bootBrand}>NEXORA AI</div>
+            <div style={s.bootTagline}>Not a chatbot. An intelligence system.</div>
+            <div style={s.bootMuted}>SYSTEM READY</div>
+          </div>
+        )}
       </div>
     );
   }
 
+  // ——— AUTH ———
+  if (phase === "auth") {
+    return (
+      <div style={s.page}>
+        <div style={s.authWrap}>
+          <div style={s.authHeader}>
+            <div style={s.brandBig}>NEXORA</div>
+            <div style={s.brandSub}>AI CORE</div>
+            <div style={s.tagline}>Not a chatbot. An intelligence system.</div>
+          </div>
+          <div style={s.statusBox}>
+            <div style={s.statusTitle}>SYSTEM STATUS</div>
+            <div style={s.statusLine}><span style={s.dot}>●</span> Neural Engine ONLINE</div>
+            <div style={s.statusLine}><span style={s.dot}>●</span> Reasoning Layer ACTIVE</div>
+            <div style={s.statusLine}><span style={s.dot}>●</span> Knowledge Network CONNECTED</div>
+            <div style={s.statusLine}><span style={s.dot}>●</span> Processing Core RUNNING</div>
+          </div>
+          <div style={s.authCard}>
+            <div style={s.authLabel}>{isLogin ? "ACCESS CORE" : "CREATE ACCESS"}</div>
+            {!isLogin && (
+              <input placeholder="Ad soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={s.input} />
+            )}
+            <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={s.input} />
+            <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+            {error && <div style={s.error}>{error}</div>}
+            <button onClick={handleAuth} style={s.primaryBtn}>
+              {isLogin ? "Initialize Core" : "Register · 50 Token"}
+            </button>
+            <div style={s.switch} onClick={() => { setIsLogin(!isLogin); setError(""); }}>
+              {isLogin ? "Hesabın yok mu? Kayıt ol" : "Hesabın var mı? Giriş yap"}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ——— APP ———
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto", height: "100vh", display: "flex", flexDirection: "column" }}>
-      <header style={{ padding: "14px 20px", borderBottom: "1px solid #222", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div>
-          <strong style={{ fontSize: 18 }}>Nexora AI</strong>
-          {remaining !== null && (
-            <span style={{ marginLeft: 10, color: "#888", fontSize: 13 }}>Kalan: {remaining}</span>
+    <div style={s.page}>
+      <header style={s.header}>
+        <div style={s.headerLeft}>
+          <div style={s.brandSmall}>NEXORA</div>
+          <div style={s.coreBadge}>CORE · ONLINE</div>
+          {tokensLeft !== null && (
+            <div style={s.tokenBadge}>{tokensLeft} token</div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={() => setShowMarket(!showMarket)} style={{ ...smallBtn, background: "#1a1a2e" }}>📊 Borsa</button>
-          <button onClick={() => upgrade("pro")} style={smallBtn}>Pro $12</button>
-          <button onClick={() => upgrade("elite")} style={{ ...smallBtn, background: "linear-gradient(90deg, #7b2cff, #ff00aa)" }}>Elite $29</button>
-          <button onClick={logout} style={{ ...smallBtn, background: "#333", color: "#fff" }}>Çıkış</button>
+        <div style={s.headerRight}>
+          <button onClick={() => setShowMarket(!showMarket)} style={s.ghostBtn}>Analyze</button>
+          <button onClick={() => upgrade("pro")} style={s.ghostBtn}>Pro</button>
+          <button onClick={() => upgrade("elite")} style={s.ghostBtn}>Elite</button>
+          <button onClick={logout} style={s.ghostBtn}>Exit</button>
         </div>
       </header>
 
       {showMarket && (
-        <div style={{ padding: "12px 20px", background: "#111", borderBottom: "1px solid #222", display: "flex", gap: 8 }}>
-          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Sembol gir (BTC, ETH, SOL...)" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} onKeyDown={(e) => e.key === "Enter" && analyzeMarket()} />
-          <button onClick={analyzeMarket} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "10px 16px" }}>Analiz Et</button>
+        <div style={s.marketBar}>
+          <input
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            placeholder="Sembol (BTC, ASELSAN…)"
+            style={{ ...s.input, marginBottom: 0, flex: 1 }}
+            onKeyDown={(e) => e.key === "Enter" && analyzeMarket()}
+          />
+          <button onClick={analyzeMarket} disabled={loading} style={s.primaryBtnSmall}>Run</button>
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-        {messages.length === 0 && <p style={{ color: "#555", textAlign: "center", marginTop: 60 }}>Merhaba! Sohbet edebilir veya yukarıdan borsa analizi yapabilirsin.</p>}
+      <main style={s.chatArea}>
+        {messages.length === 0 && !loading && (
+          <div style={s.empty}>
+            <div style={s.emptyTitle}>NEXORA CORE</div>
+            <div style={s.emptySub}>STATUS: ONLINE</div>
+            <div style={s.emptyHint}>Ask. Analyze. Create.</div>
+          </div>
+        )}
+
         {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 14, padding: 12, borderRadius: 10, background: m.role === "user" ? "#1a1a2e" : "#16213e", maxWidth: "88%", marginLeft: m.role === "user" ? "auto" : 0 }}>
-            <div style={{ fontSize: 11, color: "#777", marginBottom: 4 }}>{m.role === "user" ? "Sen" : "Nexora"}</div>
-            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.content}</div>
+          <div
+            key={i}
+            style={{
+              ...s.bubble,
+              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              borderColor: m.role === "user" ? "#1a1a1a" : "rgba(0,240,255,0.25)",
+            }}
+          >
+            <div style={s.bubbleLabel}>{m.role === "user" ? "USER" : "NEXORA"}</div>
+            <div style={s.bubbleText}>{m.content}</div>
+            {m.role === "assistant" && (
+              <div style={s.meta}>
+                {m.query_type && <span>mod: {typeLabel(m.query_type)}</span>}
+                {m.model_used && <span> · {shortModel(m.model_used)}</span>}
+                {m.token_cost != null && <span> · −{m.token_cost} token</span>}
+              </div>
+            )}
           </div>
         ))}
-        {loading && <p style={{ color: "#888" }}>Düşünüyor...</p>}
-      </div>
 
-      {error && <p style={{ color: "#ff6b6b", padding: "0 20px 8px" }}>{error}</p>}
+        {loading && (
+          <div style={{ ...s.bubble, alignSelf: "flex-start", borderColor: "rgba(0,240,255,0.35)" }}>
+            <div style={s.bubbleLabel}>NEXORA PROCESS</div>
+            <div style={s.loadingRow}>
+              <span style={s.pulse} />
+              <span style={s.loadingText}>{LOADING_STEPS[loadingStep]}</span>
+            </div>
+            <div style={s.meta}>Sistem çalışıyor · lütfen bekle</div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </main>
 
-      <div style={{ padding: 14, borderTop: "1px solid #222", display: "flex", gap: 8 }}>
-        <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()} placeholder="Mesajını yaz..." style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
-        <button onClick={sendMessage} disabled={loading} style={{ ...buttonStyle, width: "auto", padding: "12px 18px" }}>Gönder</button>
+      {error && <div style={{ ...s.error, padding: "0 20px 8px" }}>{error}</div>}
+
+      <div style={s.inputBar}>
+        <input
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+          placeholder="Transmit to core…"
+          disabled={loading}
+          style={{ ...s.input, marginBottom: 0, flex: 1, opacity: loading ? 0.6 : 1 }}
+        />
+        <button onClick={sendMessage} disabled={loading} style={s.primaryBtnSmall}>
+          {loading ? "…" : "Send"}
+        </button>
       </div>
     </div>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width: "100%", padding: "11px 14px", marginBottom: 10, borderRadius: 8,
-  border: "1px solid #333", background: "#1a1a2e", color: "#fff", fontSize: 15,
-};
-
-const buttonStyle: React.CSSProperties = {
-  padding: "11px 16px", borderRadius: 8, border: "none",
-  background: "linear-gradient(90deg, #00f0ff, #7b2cff)", color: "#000",
-  fontWeight: 600, cursor: "pointer", fontSize: 15,
-};
-
-const smallBtn: React.CSSProperties = {
-  padding: "6px 11px", borderRadius: 6, border: "none",
-  background: "linear-gradient(90deg, #00f0ff, #7b2cff)", color: "#000",
-  fontWeight: 600, cursor: "pointer", fontSize: 12,
+const s: { [key: string]: React.CSSProperties } = {
+  bootScreen: {
+    minHeight: "100vh",
+    background: "#000",
+    color: "#e8e8e8",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  },
+  bootCenter: { textAlign: "center", maxWidth: 480, padding: 24 },
+  bootBrand: { fontSize: 28, fontWeight: 600, letterSpacing: 8, marginBottom: 24 },
+  bootMuted: { color: "#555", fontSize: 13, letterSpacing: 2, marginTop: 16 },
+  bootTagline: { color: "#aaa", fontSize: 14, marginTop: 12, letterSpacing: 1 },
+  bootLines: { color: "#666", fontSize: 13, lineHeight: 2, textAlign: "left" },
+  bootChecks: { color: "#00F0FF", fontSize: 13, lineHeight: 2, textAlign: "left" },
+  page: {
+    minHeight: "100vh",
+    background: "#0D0D1A",
+    color: "#e0e0e0",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    display: "flex",
+    flexDirection: "column",
+  },
+  authWrap: { margin: "auto", width: "100%", maxWidth: 440, padding: 24 },
+  authHeader: { textAlign: "center", marginBottom: 28 },
+  brandBig: { fontSize: 32, fontWeight: 700, letterSpacing: 6 },
+  brandSub: { fontSize: 12, color: "#00F0FF", letterSpacing: 4, marginTop: 4 },
+  tagline: { fontSize: 13, color: "#777", marginTop: 12 },
+  statusBox: { border: "1px solid #1a1a2e", padding: 16, marginBottom: 20, fontFamily: "ui-monospace, monospace", fontSize: 12 },
+  statusTitle: { color: "#555", marginBottom: 10, letterSpacing: 2 },
+  statusLine: { marginBottom: 4, color: "#aaa" },
+  dot: { color: "#00F0FF", marginRight: 8 },
+  authCard: { border: "1px solid #1a1a2e", padding: 20 },
+  authLabel: { fontSize: 11, letterSpacing: 2, color: "#666", marginBottom: 14 },
+  input: {
+    width: "100%",
+    padding: "12px 14px",
+    marginBottom: 10,
+    borderRadius: 0,
+    border: "1px solid #222",
+    background: "#0a0a12",
+    color: "#eee",
+    fontSize: 14,
+    outline: "none",
+  },
+  primaryBtn: {
+    width: "100%",
+    padding: "12px",
+    border: "1px solid #00F0FF",
+    background: "transparent",
+    color: "#00F0FF",
+    fontWeight: 600,
+    fontSize: 13,
+    letterSpacing: 1,
+    cursor: "pointer",
+    marginTop: 6,
+  },
+  primaryBtnSmall: {
+    padding: "12px 18px",
+    border: "1px solid #00F0FF",
+    background: "transparent",
+    color: "#00F0FF",
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  switch: { textAlign: "center", marginTop: 14, color: "#666", fontSize: 12, cursor: "pointer" },
+  error: { color: "#ff4466", fontSize: 12, marginBottom: 8 },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "12px 20px",
+    borderBottom: "1px solid #151520",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  headerLeft: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  brandSmall: { fontWeight: 700, letterSpacing: 3, fontSize: 14 },
+  coreBadge: { fontSize: 10, color: "#00F0FF", letterSpacing: 1 },
+  tokenBadge: {
+    fontSize: 11,
+    color: "#0D0D1A",
+    background: "linear-gradient(90deg, #00F0FF, #7B2CFF)",
+    padding: "3px 10px",
+    fontWeight: 700,
+    letterSpacing: 0.5,
+  },
+  headerRight: { display: "flex", gap: 8, flexWrap: "wrap" },
+  ghostBtn: {
+    padding: "7px 12px",
+    border: "1px solid #222",
+    background: "transparent",
+    color: "#999",
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  marketBar: { display: "flex", gap: 10, padding: "10px 20px", borderBottom: "1px solid #151520" },
+  chatArea: {
+    flex: 1,
+    overflowY: "auto",
+    padding: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  empty: { margin: "auto", textAlign: "center", maxWidth: 560 },
+  emptyTitle: { fontSize: 22, letterSpacing: 4, fontWeight: 600 },
+  emptySub: { color: "#00F0FF", fontSize: 11, letterSpacing: 2, marginTop: 8 },
+  emptyHint: { color: "#555", marginTop: 16, fontSize: 14 },
+  bubble: {
+    maxWidth: "85%",
+    padding: "12px 14px",
+    border: "1px solid #1a1a1a",
+    background: "#0a0a12",
+  },
+  bubbleLabel: { fontSize: 10, color: "#00F0FF", letterSpacing: 1, marginBottom: 6 },
+  bubbleText: { whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 },
+  meta: { marginTop: 10, fontSize: 10, color: "#555", letterSpacing: 0.3 },
+  loadingRow: { display: "flex", alignItems: "center", gap: 10 },
+  pulse: {
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    background: "#00F0FF",
+    boxShadow: "0 0 12px #00F0FF",
+    display: "inline-block",
+  },
+  loadingText: { fontSize: 13, color: "#aaa" },
+  inputBar: {
+    display: "flex",
+    gap: 10,
+    padding: "14px 20px",
+    borderTop: "1px solid #151520",
+  },
 };
