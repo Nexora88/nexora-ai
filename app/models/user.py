@@ -10,13 +10,10 @@ class PlanType(str, Enum):
     ELITE = "elite"
 
 
-class UserBase(BaseModel):
+class UserCreate(BaseModel):
     email: EmailStr
+    password: str = Field(..., min_length=6, max_length=72)
     full_name: Optional[str] = None
-
-
-class UserCreate(UserBase):
-    password: str = Field(..., min_length=6)
 
 
 class UserLogin(BaseModel):
@@ -24,32 +21,21 @@ class UserLogin(BaseModel):
     password: str
 
 
-class UserInDB(UserBase):
+class UserPublic(BaseModel):
     id: str
-    hashed_password: str
-    plan: PlanType = PlanType.FREE
-    messages_used: int = 0
-    messages_limit: int = 5
-    is_active: bool = True
-    created_at: datetime
-    updated_at: datetime
-    stripe_customer_id: Optional[str] = None
-
-
-class UserPublic(UserBase):
-    id: str
+    email: EmailStr
+    full_name: Optional[str] = None
     plan: PlanType
     messages_used: int
     messages_limit: int
+    tokens: int = 50
     is_active: bool
     created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
-
-
-class TokenData(BaseModel):
-    user_id: Optional[str] = None
-    email: Optional[str] = None
