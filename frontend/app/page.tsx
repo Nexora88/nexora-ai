@@ -38,6 +38,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [symbol, setSymbol] = useState("");
   const [showMarket, setShowMarket] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function Home() {
         if (saved) {
           setToken(saved);
           setPhase("app");
+          fetchMe(saved);
         } else setPhase("auth");
       }, 11000),
     ];
@@ -62,7 +64,6 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, loadingStep]);
 
-  // Yükleme animasyonu adımları
   useEffect(() => {
     if (!loading) {
       setLoadingStep(0);
@@ -74,14 +75,27 @@ export default function Home() {
     return () => clearInterval(id);
   }, [loading]);
 
+  const fetchMe = async (accessToken: string) => {
+    try {
+      const res = await axios.get(`${API_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
+    } catch {
+      // oturum bozuksa sessizce geç
+    }
+  };
+
   const handleAuth = async () => {
     setError("");
     try {
       if (isLogin) {
         const res = await axios.post(`${API_URL}/auth/login`, { email, password });
-        localStorage.setItem("nexora_token", res.data.access_token);
-        setToken(res.data.access_token);
+        const access = res.data.access_token;
+        localStorage.setItem("nexora_token", access);
+        setToken(access);
         setPhase("app");
+        await fetchMe(access);
       } else {
         await axios.post(`${API_URL}/auth/register`, {
           email,
@@ -100,6 +114,7 @@ export default function Home() {
     if (!message.trim() || !token || loading) return;
     setLoading(true);
     setError("");
+    setShowAttach(false);
     const newMessages: ChatMsg[] = [...messages, { role: "user", content: message }];
     setMessages(newMessages);
     setMessage("");
@@ -149,6 +164,7 @@ export default function Home() {
           role: "assistant",
           content: `ANALİZ — ${res.data.symbol}\n\n${res.data.analysis}`,
           query_type: "finance",
+          model_used: "nexora-market",
           token_cost: 3,
         },
       ]);
@@ -183,16 +199,24 @@ export default function Home() {
   };
 
   const shortModel = (m?: string) => {
-    if (!m) return "nexora-router";
+    if (!m) return "";
     const part = m.split("/").pop() || m;
-    return part.length > 28 ? part.slice(0, 26) + "…" : part;
+    return part.length > 32 ? part.slice(0, 30) + "…" : part;
   };
 
   const typeLabel = (t?: string) => {
     if (t === "finance") return "finans";
     if (t === "code") return "kod";
     if (t === "deep") return "derin";
-    return "hızlı";
+    if (t === "fast") return "hızlı";
+    return t || "";
+  };
+
+  const onAttachHint = (label: string, extra: number) => {
+    setShowAttach(false);
+    setError(
+      `${label} yakında. Ek maliyet: +${extra} token (metin ücretine eklenir). Şimdilik metin + borsa aktif.`
+    );
   };
 
   // ——— BOOT ———
@@ -282,9 +306,7 @@ export default function Home() {
         <div style={s.headerLeft}>
           <div style={s.brandSmall}>NEXORA</div>
           <div style={s.coreBadge}>CORE · ONLINE</div>
-          {tokensLeft !== null && (
-            <div style={s.tokenBadge}>{tokensLeft} token</div>
-          )}
+          {tokensLeft !== null && <div style={s.tokenBadge}>{tokensLeft} token</div>}
         </div>
         <div style={s.headerRight}>
           <button onClick={() => setShowMarket(!showMarket)} style={s.ghostBtn}>Analyze</button>
@@ -313,6 +335,7 @@ export default function Home() {
             <div style={s.emptyTitle}>NEXORA CORE</div>
             <div style={s.emptySub}>STATUS: ONLINE</div>
             <div style={s.emptyHint}>Ask. Analyze. Create.</div>
+            <div style={s.emptyHint2}>Routing seçer · sen sorarsın</div>
           </div>
         )}
 
@@ -327,10 +350,10 @@ export default function Home() {
           >
             <div style={s.bubbleLabel}>{m.role === "user" ? "USER" : "NEXORA"}</div>
             <div style={s.bubbleText}>{m.content}</div>
-            {m.role === "assistant" && (
+            {m.role === "assistant" && (m.model_used || m.query_type || m.token_cost != null) && (
               <div style={s.meta}>
                 {m.query_type && <span>mod: {typeLabel(m.query_type)}</span>}
-                {m.model_used && <span> · {shortModel(m.model_used)}</span>}
+                {m.model_used && <span> · motor: {shortModel(m.model_used)}</span>}
                 {m.token_cost != null && <span> · −{m.token_cost} token</span>}
               </div>
             )}
@@ -344,7 +367,7 @@ export default function Home() {
               <span style={s.pulse} />
               <span style={s.loadingText}>{LOADING_STEPS[loadingStep]}</span>
             </div>
-            <div style={s.meta}>Sistem çalışıyor · lütfen bekle</div>
+            <div style={s.meta}>Sistem çalışıyor · donmadı</div>
           </div>
         )}
         <div ref={bottomRef} />
@@ -352,7 +375,19 @@ export default function Home() {
 
       {error && <div style={{ ...s.error, padding: "0 20px 8px" }}>{error}</div>}
 
+      {showAttach && (
+        <div style={s.attachMenu}>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Fotoğraf", 2)}>Fotoğraf · +2 token</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Belge / PDF", 2)}>Belge · +2 token</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Ses", 3)}>Ses · +3 token</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Video", 4)}>Video · +4 token</button>
+        </div>
+      )}
+
       <div style={s.inputBar}>
+        <button type="button" style={s.plusBtn} onClick={() => setShowAttach(!showAttach)} disabled={loading}>
+          +
+        </button>
         <input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
@@ -457,7 +492,6 @@ const s: { [key: string]: React.CSSProperties } = {
     background: "linear-gradient(90deg, #00F0FF, #7B2CFF)",
     padding: "3px 10px",
     fontWeight: 700,
-    letterSpacing: 0.5,
   },
   headerRight: { display: "flex", gap: 8, flexWrap: "wrap" },
   ghostBtn: {
@@ -469,27 +503,16 @@ const s: { [key: string]: React.CSSProperties } = {
     cursor: "pointer",
   },
   marketBar: { display: "flex", gap: 10, padding: "10px 20px", borderBottom: "1px solid #151520" },
-  chatArea: {
-    flex: 1,
-    overflowY: "auto",
-    padding: 20,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
+  chatArea: { flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 12 },
   empty: { margin: "auto", textAlign: "center", maxWidth: 560 },
   emptyTitle: { fontSize: 22, letterSpacing: 4, fontWeight: 600 },
   emptySub: { color: "#00F0FF", fontSize: 11, letterSpacing: 2, marginTop: 8 },
   emptyHint: { color: "#555", marginTop: 16, fontSize: 14 },
-  bubble: {
-    maxWidth: "85%",
-    padding: "12px 14px",
-    border: "1px solid #1a1a1a",
-    background: "#0a0a12",
-  },
+  emptyHint2: { color: "#444", marginTop: 8, fontSize: 12 },
+  bubble: { maxWidth: "85%", padding: "12px 14px", border: "1px solid #1a1a1a", background: "#0a0a12" },
   bubbleLabel: { fontSize: 10, color: "#00F0FF", letterSpacing: 1, marginBottom: 6 },
   bubbleText: { whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 },
-  meta: { marginTop: 10, fontSize: 10, color: "#555", letterSpacing: 0.3 },
+  meta: { marginTop: 10, fontSize: 10, color: "#666", letterSpacing: 0.2 },
   loadingRow: { display: "flex", alignItems: "center", gap: 10 },
   pulse: {
     width: 8,
@@ -500,10 +523,37 @@ const s: { [key: string]: React.CSSProperties } = {
     display: "inline-block",
   },
   loadingText: { fontSize: 13, color: "#aaa" },
+  attachMenu: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    padding: "8px 20px",
+    borderTop: "1px solid #151520",
+    background: "#0a0a12",
+  },
+  attachItem: {
+    padding: "8px 12px",
+    border: "1px solid #222",
+    background: "transparent",
+    color: "#aaa",
+    fontSize: 12,
+    cursor: "pointer",
+  },
   inputBar: {
     display: "flex",
     gap: 10,
     padding: "14px 20px",
     borderTop: "1px solid #151520",
+    alignItems: "center",
+  },
+  plusBtn: {
+    width: 42,
+    height: 42,
+    border: "1px solid #333",
+    background: "transparent",
+    color: "#00F0FF",
+    fontSize: 22,
+    cursor: "pointer",
+    flexShrink: 0,
   },
 };
