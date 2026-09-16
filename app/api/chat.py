@@ -1,15 +1,12 @@
-from fastapi import APIRouter, HTTPException, status, Header, Depends
+from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.llm_router import llm_router
-from app.services.usage import can_send_message, remaining_messages
-from app.api.auth import get_user_by_email, increment_usage
+from app.api.auth import get_user_by_email, deduct_tokens
 from app.core.security import decode_access_token
 from app.core.database import get_db
-from app.models.user import PlanType
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -29,7 +26,10 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     content: str
     model_used: str = "nexora-router"
+    query_type: str = "fast"
     remaining: int
+    tokens: int
+    token_cost: int = 1
 
 
 async def get_current_user(
@@ -37,18 +37,68 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ):
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid token")
+        raise HTTPException(status_code=401, detail="Eksik veya geçersiz oturum")
 
     token = authorization.replace("Bearer ", "")
     payload = decode_access_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Geçersiz oturum")
 
     email = payload.get("email")
     user = await get_user_by_email(email, db)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
     return user
+
+
+NEXORA_IDENTITY = """
+Sen Nexora AI'sın. Bir chatbot değil; analiz, muhakeme ve üretim için tasarlanmış bir zeka sistemisin.
+Sloganın: Veri · Zekâ · Gelecek.
+
+Kurucun ve seni geliştiren kişi: Ahmet Eymen Bakraç. İnsanlar "seni kim yaptı", "kurucun kim", "sahibin kim" diye sorduğunda bunu açık ve doğal söyle.
+Türkiye merkezli bir proje olarak doğdun; küresel piyasalar, kod ve muhakeme için çalışırsın.
+
+Asla şunları söyleme veya ima etme:
+- Grok, xAI, ChatGPT, GPT, Claude, Gemini, Llama olduğunu
+- OpenAI, Google, Anthropic veya başka bir firmanın ürünü olduğunu
+- "Ben aslında X modeliyim" diye arkadaki motoru ifşa etme
+
+Arkanda birden fazla model ve yönlendirme katmanı vardır; kullanıcıya bunu "Nexora'nın hibrit zeka katmanı / çoklu motor yönlendirmesi" diye anlatırsın. Tek bir marka model adı verme.
+
+Kimlik sorularına örnek duruş (ezber cümle değil, bu ruhla cevap ver):
+
+"Sen kimsin?"
+→ Ben Nexora AI. Veriyi anlamlı hale getirip net cevap üretmek için tasarlandım. Sohbet de ederim; asıl işim analiz, muhakeme ve üretmek.
+
+"Seni kim yaptı / kim geliştirdi?"
+→ Beni Ahmet Eymen Bakraç geliştirdi. Nexora'nın kurucusu o. Ben onun inşa ettiği zeka katmanıyım.
+
+"Hangi modelsin?"
+→ Tek bir hazır model değilim. Nexora, sorunun türüne göre farklı zeka motorlarını seçen hibrit bir sistem. Sen bana soruyu sorarsın; ben en uygun yolu seçerim.
+
+"ChatGPT misin / Grok musun?"
+→ Hayır. Ben Nexora AI'yım. Başka bir ürünün kopyası veya arayüzü değilim.
+
+"Nerelisin?"
+→ Nexora, Ahmet Eymen Bakraç tarafından Türkiye'de geliştirilen bir zeka sistemi. İşim coğrafyaya bağlı değil; veri ve muhakeme her yerde.
+
+"Kimin için çalışıyorsun?"
+→ Kullanıcı için. Kurucu Ahmet Eymen Bakraç; yönüm ise kullanıcıya doğru, net ve işe yarar cevap vermek.
+
+Üslup:
+- Net, samimi, abartısız konuş.
+- Bilmediğini uydurma; bilmiyorsan söyle.
+- Spekülatif finans tavsiyesini kesin emir gibi verme; risk notu koy.
+- Kullanıcı Türkçe yazarsa Türkçe cevap ver.
+- Kısa soruya kısa, derin soruya yapılandırılmış cevap ver.
+- Robot gibi kural listesi okuma; doğal cümle kur.
+
+Finans / borsa / kripto sorularında istersen şu iskeleti kullan:
+1) Kısa durum
+2) Önemli noktalar
+3) Risk
+4) Net kapanış cümlesi
+""".strip()
 
 
 @router.post("")
@@ -59,90 +109,50 @@ async def chat(
 ):
     user = await get_current_user(authorization, db)
 
-    plan = PlanType(user.plan)
-
-    if not can_send_message(user.messages_used, plan):
+    if user.tokens <= 0:
         raise HTTPException(
             status_code=402,
-            detail=f"Mesaj hakkın doldu. Plan: {plan.value}. Pro veya Elite'e yükselt.",
+            detail="Token hakkın bitti. Mağazadan token al veya Pro / Elite plana geç.",
         )
 
-    # Akıllı sistem prompt
-    system_content = (
-        "Sen Nexora AI'sın. Veri, Zekâ ve Gelecek odaklı bir asistanısın.\n\n"
-        "Karakterin:\n"
-        "- Net, samimi ve abartısız konuşursun\n"
-        "- Spekülasyon yapmazsın, bilmediğini söylersin\n"
-        "- Kullanıcıya gerçekten değer katmaya çalışırsın\n"
-        "- Kısa ve öz cevap vermeyi tercih edersin, gereksiz uzatmazsın\n\n"
-        "Özel yeteneklerin:\n"
-        "- Borsa, kripto, hisse ve forex konularında daha dikkatli ve yapılandırılmış analiz yaparsın\n"
-        "- Kod yazma, hata bulma ve ödev konularında adım adım yardımcı olursun\n"
-        "- Kullanıcı Türkçe yazarsa Türkçe, başka dilde yazarsa o dilde cevap verirsin\n\n"
-        "Eğer kullanıcı bir hisse, kripto veya piyasa sembolü soruyorsa (örnek: BTC, THYAO, AAPL, EURUSD, altın, gümüş), "
-        "cevabını şu yapıda ver:\n"
-        "1. Kısa durum özeti\n"
-        "2. Önemli seviyeler / dikkat edilmesi gerekenler\n"
-        "3. Risk notu\n"
-        "4. Net sonuç cümlesi\n"
-    )
-
-    # Basit finans algılama
-    text_lower = body.messages[-1].content.lower() if body.messages else ""
-    finance_keywords = [
-        "btc", "eth", "bitcoin", "ethereum", "hisse", "borsa", "analiz",
-        "thyao", "aapl", "tsla", "altın", "gümüş", "eurusd", "forex",
-        "kripto", "coin", "dolar", "euro", "gram altın"
+    messages = [
+        {"role": "system", "content": NEXORA_IDENTITY},
+        *[m.model_dump() for m in body.messages],
     ]
 
-    is_finance = any(word in text_lower for word in finance_keywords)
+    # Ön maliyet tahmini (router ile aynı mantık)
+    user_text = body.messages[-1].content if body.messages else ""
+    _, _, estimated_cost = llm_router.resolve(user_text, user.plan)
 
-    if is_finance:
-        system_content += (
-            "\n\nŞu an finans/piyasa modundasın. Daha temkinli, veri odaklı ve yapılandırılmış cevap ver."
+    if user.tokens < estimated_cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Bu işlem yaklaşık {estimated_cost} token. Kalan: {user.tokens}",
         )
 
-    system_prompt = {
-        "role": "system",
-        "content": system_content,
-    }
-
-    messages = [system_prompt] + [m.model_dump() for m in body.messages]
-
     try:
-        if body.stream:
-            async def generate():
-                async for chunk in llm_router.stream_chat(
-                    messages=messages,
-                    plan=plan.value,
-                    temperature=body.temperature,
-                    max_tokens=body.max_tokens,
-                ):
-                    yield chunk
-                await increment_usage(user.email, db)
-
-            return StreamingResponse(generate(), media_type="text/plain")
-
-        response = await llm_router.chat(
+        result = await llm_router.chat(
             messages=messages,
-            plan=plan.value,
+            plan=user.plan,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
             stream=False,
         )
 
-        content = response.choices[0].message.content
-        await increment_usage(user.email, db)
-
-        remaining = remaining_messages(user.messages_used + 1, plan)
+        content = result.response.choices[0].message.content
+        cost = result.token_cost
+        remaining = await deduct_tokens(user.email, cost, db)
 
         return ChatResponse(
             content=content,
+            model_used=result.model_used,
+            query_type=result.query_type,
             remaining=remaining,
+            tokens=remaining,
+            token_cost=cost,
         )
-
     except Exception as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Model servisi şu an kullanılamıyor: {str(e)[:100]}",
+            detail=f"Zeka katmanı şu an yanıt veremiyor: {str(e)[:140]}",
         )
