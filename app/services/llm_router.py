@@ -1,13 +1,13 @@
 """
 Nexora AI — Smart multi-model router
-Ürün: soruya göre model seçimi + failover + token maliyeti
+Ürün: kullanıcının ne istediğini anla → doğru motor → failover → token
 """
 from __future__ import annotations
 
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from litellm import acompletion
 from loguru import logger
@@ -17,32 +17,34 @@ from app.core.config import get_settings
 settings = get_settings()
 
 
-# ---------- Sorgu sınıfları ----------
 class QueryType:
-    FAST = "fast"          # kısa sohbet → 1 token
-    CODE = "code"          # kod / hata → 2 token
-    FINANCE = "finance"    # borsa / kripto → 3 token
-    DEEP = "deep"          # uzun muhakeme → 2-3 token
+    FAST = "fast"
+    CODE = "code"
+    FINANCE = "finance"
+    DEEP = "deep"
+    IDENTITY = "identity"  # kimlik soruları — hızlı + ucuz
 
 
 TOKEN_COST = {
     QueryType.FAST: 1,
+    QueryType.IDENTITY: 1,
     QueryType.CODE: 2,
-    QueryType.FINANCE: 3,
     QueryType.DEEP: 2,
+    QueryType.FINANCE: 3,
 }
 
-# Plan → hangi havuzlar açık
 PLAN_POOLS = {
-    "free": ["fast", "code", "finance"],
-    "pro": ["fast", "code", "finance", "deep"],
-    "elite": ["fast", "code", "finance", "deep"],
+    "free": ["fast", "identity", "code", "finance"],
+    "pro": ["fast", "identity", "code", "finance", "deep"],
+    "elite": ["fast", "identity", "code", "finance", "deep"],
 }
 
-# Model havuzları (önce ücretsiz / ucuz)
-# Format: LiteLLM model id
 MODEL_POOLS: Dict[str, List[str]] = {
     "fast": [
+        "groq/llama-3.1-8b-instant",
+        "groq/openai/gpt-oss-20b",
+    ],
+    "identity": [
         "groq/llama-3.1-8b-instant",
         "groq/openai/gpt-oss-20b",
     ],
@@ -61,31 +63,80 @@ MODEL_POOLS: Dict[str, List[str]] = {
     ],
 }
 
+# --- Sinyal sözlükleri (TR + EN) ---
 FINANCE_RE = re.compile(
-    r"\b(btc|eth|bitcoin|ethereum|borsa|hisse|kripto|coin|forex|"
-    r"altın|gümüş|dolar|euro|bist|thyao|aselsan|aapl|tsla|"
-    r"analiz|portföy|candle|rsi|macd)\b",
+    r"\b("
+    r"btc|eth|bitcoin|ethereum|sol|xrp|borsa|hisse|kripto|coin|token|forex|"
+    r"altın|gumus|gümüş|dolar|euro|sterlin|bist|xu100|thyao|aselsan|garanti|"
+    r"aapl|tsla|nvda|nasdaq|s&p|portföy|portfoy|candle|mum|rsi|macd|stop[\s-]?loss|"
+    r"analiz|yükseliş|yukselis|düşüş|dusuş|volati?lite|likidite|emir|lot|"
+    r"faiz|enflasyon|cds|tahvil|dividant|temettü"
+    r")\b",
     re.I,
 )
+
 CODE_RE = re.compile(
-    r"\b(code|kod|python|javascript|typescript|bug|error|hata|"
-    r"function|class|api|sql|debug|compile|stack\s*trace)\b",
+    r"\b("
+    r"code|kod|python|javascript|typescript|react|next\.?js|fastapi|sql|html|css|"
+    r"bug|error|hata|exception|stack\s*trace|debug|compile|function|fonksiyon|"
+    r"class|api|endpoint|regex|json|docker|git|algorithm|algoritma|"
+    r"yazılım|program|script|refactor|unit\s*test"
+    r")\b",
+    re.I,
+)
+
+IDENTITY_RE = re.compile(
+    r"("
+    r"sen kimsin|seni kim (yaptı|geliştirdi|yazdı|üretti)|kurucun kim|"
+    r"hangi modelsin|chatgpt misin|grok musun|claude musun|gemini misin|"
+    r"nerelisin|sahibin kim|kimin ürünüsün|nexora (nedir|kim)|"
+    r"who (are|made|built) you|what model are you"
+    r")",
+    re.I,
+)
+
+DEEP_RE = re.compile(
+    r"("
+    r"neden|niçin|nasıl çalışır|karşılaştır|farkı ne|avantaj|dezavantaj|"
+    r"adım adım|detaylı|derinlemesine|strateji|planla|mimarisi|"
+    r"why |how does|compare|pros and cons|step by step|in detail"
+    r")",
     re.I,
 )
 
 
-def classify_query(text: str) -> str:
+def classify_query(text: str) -> Tuple[str, str]:
+    """
+    Döner: (query_type, reason)
+    reason = kullanıcıya/log'a gösterilecek kısa açıklama
+    """
     t = (text or "").strip()
     if not t:
-        return QueryType.FAST
-    if FINANCE_RE.search(t):
-        return QueryType.FINANCE
-    if CODE_RE.search(t):
-        return QueryType.CODE
-    # uzun / karmaşık
-    if len(t) > 600 or t.count("?") >= 3:
-        return QueryType.DEEP
-    return QueryType.FAST
+        return QueryType.FAST, "boş_girdi"
+
+    # 1) Kimlik — önce (kısa ve net)
+    if IDENTITY_RE.search(t) or len(t) < 80 and re.search(
+        r"\b(kimsin|kurucu|modelsin)\b", t, re.I
+    ):
+        return QueryType.IDENTITY, "kimlik_sorgusu"
+
+    # 2) Finans sinyali güçlüyse
+    fin_hits = len(FINANCE_RE.findall(t))
+    code_hits = len(CODE_RE.findall(t))
+
+    if fin_hits >= 1 and fin_hits >= code_hits:
+        return QueryType.FINANCE, f"finans_sinyali:{fin_hits}"
+
+    # 3) Kod
+    if code_hits >= 1:
+        return QueryType.CODE, f"kod_sinyali:{code_hits}"
+
+    # 4) Uzun / çok sorulu / derin kelimeler
+    if len(t) > 500 or t.count("?") >= 3 or DEEP_RE.search(t):
+        return QueryType.DEEP, "derin_muhakeme"
+
+    # 5) Varsayılan: hızlı sohbet
+    return QueryType.FAST, "genel_sohbet"
 
 
 @dataclass
@@ -96,6 +147,7 @@ class RouterResult:
     token_cost: int
     latency_ms: int
     attempts: List[str]
+    reason: str = ""
 
 
 class LLMRouter:
@@ -107,19 +159,20 @@ class LLMRouter:
         allowed = PLAN_POOLS.get(plan, PLAN_POOLS["free"])
         return {k: v for k, v in MODEL_POOLS.items() if k in allowed}
 
-    def resolve(self, user_text: str, plan: str = "free") -> tuple[str, List[str], int]:
-        """query_type, model listesi (öncelik sırası), token cost"""
-        qtype = classify_query(user_text)
+    def resolve(self, user_text: str, plan: str = "free") -> Tuple[str, List[str], int, str]:
+        qtype, reason = classify_query(user_text)
         pools = self._pools_for_plan(plan)
-        # deep free'de yoksa fast'e düş
         if qtype not in pools:
-            qtype = QueryType.FAST
+            # free'de deep yoksa
+            qtype = QueryType.FAST if qtype == QueryType.DEEP else qtype
+            if qtype not in pools:
+                qtype = QueryType.FAST
+            reason = reason + "|plan_downgrade"
         models = list(pools.get(qtype) or pools.get("fast") or [])
         cost = TOKEN_COST.get(qtype, 1)
-        # elite deep biraz daha pahalı hissedilsin
         if plan == "elite" and qtype == QueryType.DEEP:
             cost = 3
-        return qtype, models, cost
+        return qtype, models, cost, reason
 
     async def chat(
         self,
@@ -135,7 +188,7 @@ class LLMRouter:
                 user_text = m.get("content") or ""
                 break
 
-        qtype, models, cost = self.resolve(user_text, plan)
+        qtype, models, cost, reason = self.resolve(user_text, plan)
         if not models:
             raise RuntimeError("No models available for this plan")
 
@@ -146,7 +199,9 @@ class LLMRouter:
             attempts.append(model)
             t0 = time.perf_counter()
             try:
-                logger.info(f"Nexora router → type={qtype} model={model} cost={cost}")
+                logger.info(
+                    f"Nexora router type={qtype} reason={reason} model={model} cost={cost}"
+                )
                 resp = await acompletion(
                     model=model,
                     messages=messages,
@@ -162,15 +217,14 @@ class LLMRouter:
                     token_cost=cost,
                     latency_ms=latency_ms,
                     attempts=attempts,
+                    reason=reason,
                 )
             except Exception as e:
                 last_error = e
                 logger.warning(f"Model failed {model}: {e}")
                 continue
 
-        raise RuntimeError(
-            f"All models failed for type={qtype}. Last: {last_error}"
-        )
+        raise RuntimeError(f"All models failed type={qtype}. Last: {last_error}")
 
 
 llm_router = LLMRouter()
