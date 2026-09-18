@@ -13,13 +13,15 @@ type ChatMsg = {
   model_used?: string;
   query_type?: string;
   token_cost?: number;
+  latency_ms?: number;
 };
 
-const LOADING_STEPS = [
-  "Core bağlantısı kuruluyor…",
-  "Sorgu türü analiz ediliyor…",
-  "Uygun zeka motoru seçiliyor…",
-  "Yanıt üretiliyor…",
+const PROCESS_STAGES = [
+  "Sinyal alındı",
+  "Niyet çözülüyor",
+  "Motor seçiliyor",
+  "Muhakeme çalışıyor",
+  "Yanıt hizalanıyor",
 ];
 
 export default function Home() {
@@ -34,13 +36,16 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [tokensLeft, setTokensLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [stageIdx, setStageIdx] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
   const [symbol, setSymbol] = useState("");
   const [showMarket, setShowMarket] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const loadStarted = useRef(0);
 
+  /* —— AÇILIŞ (değişmedi) —— */
   useEffect(() => {
     const timers = [
       setTimeout(() => setBootStep(1), 600),
@@ -62,17 +67,20 @@ export default function Home() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, loadingStep]);
+  }, [messages, loading, stageIdx, elapsed]);
 
   useEffect(() => {
-    if (!loading) {
-      setLoadingStep(0);
-      return;
-    }
-    const id = setInterval(() => {
-      setLoadingStep((s) => (s + 1) % LOADING_STEPS.length);
-    }, 1600);
-    return () => clearInterval(id);
+    if (!loading) return;
+    const stageTimer = setInterval(() => {
+      setStageIdx((i) => (i + 1) % PROCESS_STAGES.length);
+    }, 1400);
+    const clock = setInterval(() => {
+      setElapsed((Date.now() - loadStarted.current) / 1000);
+    }, 100);
+    return () => {
+      clearInterval(stageTimer);
+      clearInterval(clock);
+    };
   }, [loading]);
 
   const fetchMe = async (accessToken: string) => {
@@ -82,7 +90,7 @@ export default function Home() {
       });
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
     } catch {
-      // oturum bozuksa sessizce geç
+      /* ignore */
     }
   };
 
@@ -112,9 +120,13 @@ export default function Home() {
 
   const sendMessage = async () => {
     if (!message.trim() || !token || loading) return;
-    setLoading(true);
-    setError("");
     setShowAttach(false);
+    setError("");
+    setLoading(true);
+    setStageIdx(0);
+    loadStarted.current = Date.now();
+    setElapsed(0);
+
     const newMessages: ChatMsg[] = [...messages, { role: "user", content: message }];
     setMessages(newMessages);
     setMessage("");
@@ -128,7 +140,7 @@ export default function Home() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
+      const clientMs = Date.now() - loadStarted.current;
       setMessages([
         ...newMessages,
         {
@@ -137,6 +149,7 @@ export default function Home() {
           model_used: res.data.model_used,
           query_type: res.data.query_type,
           token_cost: res.data.token_cost,
+          latency_ms: res.data.latency_ms || clientMs,
         },
       ]);
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
@@ -150,6 +163,9 @@ export default function Home() {
   const analyzeMarket = async () => {
     if (!symbol.trim() || !token || loading) return;
     setLoading(true);
+    setStageIdx(0);
+    loadStarted.current = Date.now();
+    setElapsed(0);
     setError("");
     setShowMarket(false);
     try {
@@ -158,6 +174,7 @@ export default function Home() {
         { symbol: symbol.trim() },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      const clientMs = Date.now() - loadStarted.current;
       setMessages((prev) => [
         ...prev,
         {
@@ -166,6 +183,7 @@ export default function Home() {
           query_type: "finance",
           model_used: "nexora-market",
           token_cost: 3,
+          latency_ms: clientMs,
         },
       ]);
     } catch (err: any) {
@@ -200,43 +218,46 @@ export default function Home() {
 
   const shortModel = (m?: string) => {
     if (!m) return "";
-    const part = m.split("/").pop() || m;
-    return part.length > 32 ? part.slice(0, 30) + "…" : part;
+    const p = m.split("/").pop() || m;
+    return p.length > 28 ? p.slice(0, 26) + "…" : p;
   };
 
   const typeLabel = (t?: string) => {
-    if (t === "finance") return "finans";
-    if (t === "code") return "kod";
-    if (t === "deep") return "derin";
-    if (t === "fast") return "hızlı";
-    return t || "";
+    const map: Record<string, string> = {
+      finance: "finans",
+      code: "kod",
+      deep: "derin",
+      fast: "hızlı",
+      identity: "kimlik",
+    };
+    return t ? map[t] || t : "";
   };
+
+  const fmtSec = (ms?: number) => (ms == null ? "" : `${(ms / 1000).toFixed(1)} sn`);
 
   const onAttachHint = (label: string, extra: number) => {
     setShowAttach(false);
-    setError(
-      `${label} yakında. Ek maliyet: +${extra} token (metin ücretine eklenir). Şimdilik metin + borsa aktif.`
-    );
+    setError(`${label} yakında · ek +${extra} token. Şimdilik metin ve borsa aktif.`);
   };
 
-  // ——— BOOT ———
+  /* ========== AÇILIŞ — ESKİ / İYİ HALİ ========== */
   if (phase === "boot") {
     return (
       <div style={s.bootScreen}>
         {bootStep >= 1 && (
           <div style={s.bootCenter}>
             <div style={s.bootBrand}>NEXORA</div>
-            {bootStep === 1 && <div style={s.bootMuted}>Initializing…</div>}
+            {bootStep === 1 && <div style={s.bootMuted}>Initializing...</div>}
           </div>
         )}
         {bootStep >= 2 && bootStep < 4 && (
           <div style={s.bootCenter}>
             <div style={s.bootBrand}>NEXORA CORE</div>
             <div style={s.bootLines}>
-              <div>Initializing Nexora Core…</div>
-              <div>Loading intelligence modules…</div>
-              {bootStep >= 3 && <div>Connecting reasoning engine…</div>}
-              {bootStep >= 3 && <div>Building knowledge map…</div>}
+              <div>Initializing Nexora Core...</div>
+              <div>Loading intelligence modules...</div>
+              {bootStep >= 3 && <div>Connecting reasoning engine...</div>}
+              {bootStep >= 3 && <div>Building knowledge map...</div>}
             </div>
           </div>
         )}
@@ -262,7 +283,7 @@ export default function Home() {
     );
   }
 
-  // ——— AUTH ———
+  /* ========== GİRİŞ — ESKİ / İYİ HALİ ========== */
   if (phase === "auth") {
     return (
       <div style={s.page}>
@@ -285,7 +306,14 @@ export default function Home() {
               <input placeholder="Ad soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={s.input} />
             )}
             <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={s.input} />
-            <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+            <input
+              type="password"
+              placeholder="Şifre"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={s.input}
+              onKeyDown={(e) => e.key === "Enter" && handleAuth()}
+            />
             {error && <div style={s.error}>{error}</div>}
             <button onClick={handleAuth} style={s.primaryBtn}>
               {isLogin ? "Initialize Core" : "Register · 50 Token"}
@@ -299,7 +327,7 @@ export default function Home() {
     );
   }
 
-  // ——— APP ———
+  /* ========== SOHBET — GELİŞTİRİLMİŞ ========== */
   return (
     <div style={s.page}>
       <header style={s.header}>
@@ -335,7 +363,6 @@ export default function Home() {
             <div style={s.emptyTitle}>NEXORA CORE</div>
             <div style={s.emptySub}>STATUS: ONLINE</div>
             <div style={s.emptyHint}>Ask. Analyze. Create.</div>
-            <div style={s.emptyHint2}>Routing seçer · sen sorarsın</div>
           </div>
         )}
 
@@ -350,22 +377,34 @@ export default function Home() {
           >
             <div style={s.bubbleLabel}>{m.role === "user" ? "USER" : "NEXORA"}</div>
             <div style={s.bubbleText}>{m.content}</div>
-            {m.role === "assistant" && (m.model_used || m.query_type || m.token_cost != null) && (
+            {m.role === "assistant" && (
               <div style={s.meta}>
                 {m.query_type && <span>mod: {typeLabel(m.query_type)}</span>}
                 {m.model_used && <span> · motor: {shortModel(m.model_used)}</span>}
                 {m.token_cost != null && <span> · −{m.token_cost} token</span>}
+                {m.latency_ms != null && <span> · {fmtSec(m.latency_ms)}</span>}
               </div>
             )}
           </div>
         ))}
 
         {loading && (
-          <div style={{ ...s.bubble, alignSelf: "flex-start", borderColor: "rgba(0,240,255,0.35)" }}>
+          <div style={{ ...s.bubble, ...s.processCard, alignSelf: "flex-start" }}>
             <div style={s.bubbleLabel}>NEXORA PROCESS</div>
-            <div style={s.loadingRow}>
+            <div style={s.stageRow}>
               <span style={s.pulse} />
-              <span style={s.loadingText}>{LOADING_STEPS[loadingStep]}</span>
+              <div>
+                <div style={s.stageTitle}>{PROCESS_STAGES[stageIdx]}</div>
+                <div style={s.stageClock}>{elapsed.toFixed(1)}s</div>
+              </div>
+            </div>
+            <div style={s.stageBar}>
+              <div
+                style={{
+                  ...s.stageFill,
+                  width: `${((stageIdx + 1) / PROCESS_STAGES.length) * 100}%`,
+                }}
+              />
             </div>
             <div style={s.meta}>Sistem çalışıyor · donmadı</div>
           </div>
@@ -377,17 +416,15 @@ export default function Home() {
 
       {showAttach && (
         <div style={s.attachMenu}>
-          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Fotoğraf", 2)}>Fotoğraf · +2 token</button>
-          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Belge / PDF", 2)}>Belge · +2 token</button>
-          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Ses", 3)}>Ses · +3 token</button>
-          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Video", 4)}>Video · +4 token</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Fotoğraf", 2)}>Foto · +2</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Belge", 2)}>Belge · +2</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Ses", 3)}>Ses · +3</button>
+          <button type="button" style={s.attachItem} onClick={() => onAttachHint("Video", 4)}>Video · +4</button>
         </div>
       )}
 
       <div style={s.inputBar}>
-        <button type="button" style={s.plusBtn} onClick={() => setShowAttach(!showAttach)} disabled={loading}>
-          +
-        </button>
+        <button type="button" style={s.plusBtn} onClick={() => setShowAttach(!showAttach)} disabled={loading}>+</button>
         <input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
@@ -433,7 +470,13 @@ const s: { [key: string]: React.CSSProperties } = {
   brandBig: { fontSize: 32, fontWeight: 700, letterSpacing: 6 },
   brandSub: { fontSize: 12, color: "#00F0FF", letterSpacing: 4, marginTop: 4 },
   tagline: { fontSize: 13, color: "#777", marginTop: 12 },
-  statusBox: { border: "1px solid #1a1a2e", padding: 16, marginBottom: 20, fontFamily: "ui-monospace, monospace", fontSize: 12 },
+  statusBox: {
+    border: "1px solid #1a1a2e",
+    padding: 16,
+    marginBottom: 20,
+    fontFamily: "ui-monospace, monospace",
+    fontSize: 12,
+  },
   statusTitle: { color: "#555", marginBottom: 10, letterSpacing: 2 },
   statusLine: { marginBottom: 4, color: "#aaa" },
   dot: { color: "#00F0FF", marginRight: 8 },
@@ -502,34 +545,62 @@ const s: { [key: string]: React.CSSProperties } = {
     fontSize: 12,
     cursor: "pointer",
   },
-  marketBar: { display: "flex", gap: 10, padding: "10px 20px", borderBottom: "1px solid #151520" },
-  chatArea: { flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 12 },
+  marketBar: {
+    display: "flex",
+    gap: 10,
+    padding: "10px 20px",
+    borderBottom: "1px solid #151520",
+  },
+  chatArea: {
+    flex: 1,
+    overflowY: "auto",
+    padding: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
   empty: { margin: "auto", textAlign: "center", maxWidth: 560 },
   emptyTitle: { fontSize: 22, letterSpacing: 4, fontWeight: 600 },
   emptySub: { color: "#00F0FF", fontSize: 11, letterSpacing: 2, marginTop: 8 },
   emptyHint: { color: "#555", marginTop: 16, fontSize: 14 },
-  emptyHint2: { color: "#444", marginTop: 8, fontSize: 12 },
-  bubble: { maxWidth: "85%", padding: "12px 14px", border: "1px solid #1a1a1a", background: "#0a0a12" },
+  bubble: {
+    maxWidth: "85%",
+    padding: "12px 14px",
+    border: "1px solid #1a1a1a",
+    background: "#0a0a12",
+  },
+  processCard: { borderColor: "rgba(0,240,255,0.4)" },
   bubbleLabel: { fontSize: 10, color: "#00F0FF", letterSpacing: 1, marginBottom: 6 },
   bubbleText: { whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 },
   meta: { marginTop: 10, fontSize: 10, color: "#666", letterSpacing: 0.2 },
-  loadingRow: { display: "flex", alignItems: "center", gap: 10 },
+  stageRow: { display: "flex", gap: 12, alignItems: "center" },
   pulse: {
     width: 8,
     height: 8,
     borderRadius: "50%",
     background: "#00F0FF",
     boxShadow: "0 0 12px #00F0FF",
-    display: "inline-block",
+    flexShrink: 0,
   },
-  loadingText: { fontSize: 13, color: "#aaa" },
+  stageTitle: { fontSize: 14, color: "#ddd" },
+  stageClock: { fontSize: 12, color: "#00F0FF", marginTop: 2, fontVariantNumeric: "tabular-nums" },
+  stageBar: {
+    marginTop: 12,
+    height: 2,
+    background: "rgba(255,255,255,0.06)",
+    overflow: "hidden",
+  },
+  stageFill: {
+    height: "100%",
+    background: "linear-gradient(90deg, #00F0FF, #7B2CFF)",
+    transition: "width 0.35s ease",
+  },
   attachMenu: {
     display: "flex",
     flexWrap: "wrap",
     gap: 8,
     padding: "8px 20px",
     borderTop: "1px solid #151520",
-    background: "#0a0a12",
   },
   attachItem: {
     padding: "8px 12px",
