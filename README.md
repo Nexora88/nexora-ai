@@ -1,24 +1,47 @@
 # Nexora AI
 
-**Veri • Zekâ • Gelecek**
+**Veri · Zekâ · Gelecek**
 
-Multi-model hybrid AI assistant with automatic failover, free tier & advanced tools.
+> Not a chatbot. An intelligence system.
 
-## Features
-- Account system + 5 free messages
-- Multi-provider LLM router with failover
-- Pro ($12) & Elite ($29) plans ready
-- Multilingual support
-- Chat + Code + Homework + Stock analysis base
+Nexora, sorunun türüne göre doğru motoru seçen **hibrit çoklu-model** zeka sistemidir.  
+Tek bir API sarmalayıcısı değil: **niyet → model havuzu → failover → token ekonomisi**.
 
-## Tech Stack
-- FastAPI + LiteLLM
-- JWT Auth
-- Free models: Groq, Gemini, OpenRouter
+Kurucu: **Ahmet Eymen Bakraç**
 
-## Quick Start
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# Add at least one free API key
-uvicorn app.main:app --reload
+---
+
+## Ürün özeti
+
+| Katman | Ne yapar |
+|--------|----------|
+| **Router** | Soru tipi: `fast` · `code` · `finance` · `deep` · `identity` |
+| **Failover** | Bir sağlayıcı düşünce sıradaki modele geçer |
+| **Token** | Kayıtta 50 token; işlem tipine göre 1–3 (medya ek ücret) |
+| **Chat** | Kimlikli sistem prompt, çok dilli sohbet |
+| **Market** | Kripto veri (CoinGecko) + temkinli analiz |
+| **Media** | Dosya / görsel / ses yükleme (video yakında) |
+
+**Token maliyeti (metin):** hızlı/kimlik `1` · kod/derin `2` · finans `3`  
+**Medya ek:** görsel/belge `+2` · ses `+3` · video `+4` (planlı)
+
+---
+
+## Mimari
+
+```text
+┌─────────────────┐         ┌──────────────────────────┐
+│  Next.js        │  HTTP   │  FastAPI                 │
+│  (frontend/)    │ ──────► │  /api/v1/*               │
+│  Vercel         │         │  Railway / VPS önerilir  │
+└─────────────────┘         └────────────┬─────────────┘
+                                         │
+                              ┌──────────▼──────────┐
+                              │  SQLite (lokal)     │
+                              │  PostgreSQL (prod)  │
+                              └─────────────────────┘
+                                         │
+                              ┌──────────▼──────────┐
+                              │  LiteLLM Router     │
+                              │  Groq · Gemini · …  │
+                              └─────────────────────┘
