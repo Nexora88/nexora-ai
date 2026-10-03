@@ -4,15 +4,20 @@ __pycache__/
 .venv/
 venv/
 
-# Environment / secrets
+# Environment / secrets — NEVER commit these
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
 
-# Vercel
+# Vercel local metadata
 .vercel/
 
-# Node
+# Node / Next.js
 node_modules/
 frontend/node_modules/
 .next/
@@ -21,6 +26,7 @@ frontend/.next/
 # Local databases / logs
 *.db
 *.sqlite
+*.sqlite3
 *.log
 
 # IDE / OS
@@ -29,5 +35,8 @@ frontend/.next/
 .DS_Store
 Thumbs.db
 
-# Local-only deployment API source
+# Local-only backend deployment wrapper
 /api/
+
+.vercel
+.env*

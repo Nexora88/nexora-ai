@@ -19,6 +19,17 @@ def get_database_url() -> str:
         elif url.startswith("postgresql+psycopg://"):
             url = url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
 
+        # asyncpg uses ssl, while many managed Postgres providers expose
+        # sslmode in their standard libpq connection URL.
+        if "sslmode=" in url:
+            url = url.replace("sslmode=", "ssl=")
+
+        # asyncpg does not accept libpq's channel_binding URL option.
+        if "channel_binding=" in url:
+            base, query = url.split("?", 1)
+            query = "&".join(p for p in query.split("&") if not p.startswith("channel_binding="))
+            url = base + (("?" + query) if query else "")
+
         return url
 
     # Local development only. Production/Vercel is rejected by config validation.
@@ -31,6 +42,7 @@ engine = create_async_engine(
     DATABASE_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
+    connect_args={"statement_cache_size": 0},
 )
 
 AsyncSessionLocal = async_sessionmaker(
