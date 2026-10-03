@@ -34,8 +34,6 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_PRO_PRICE_ID: Optional[str] = None
     STRIPE_ELITE_PRICE_ID: Optional[str] = None
-    STRIPE_PRICE_PRO: Optional[str] = None
-    STRIPE_PRICE_ELITE: Optional[str] = None
 
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
@@ -66,12 +64,11 @@ class Settings(BaseSettings):
         if not self.JWT_SECRET:
             missing.append("JWT_SECRET")
         if missing:
-            raise RuntimeError("Production eksik env: " + ", ".join(missing))
+            raise RuntimeError("Production eksik: " + ", ".join(missing))
 
 
 @lru_cache()
 def get_settings() -> Settings:
     s = Settings()
-    if getattr(s, "ENVIRONMENT", "development").lower() == "production" or os.getenv("VERCEL") == "1":
-        s.validate_production()
+    s.validate_production()
     return s
