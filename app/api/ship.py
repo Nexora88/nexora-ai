@@ -1,6 +1,6 @@
 """
 Nexora AI — GitHub Ship API
-Bağlantı, repo seçimi, izin + secret guard, adımlı ship (branch/commit/PR)
+OAuth, repo, izin, secret guard, klasik ship + multi-agent run-swarm
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.db_models import User
+from app.services.agent_swarm import run_ship_swarm
 from app.services.github_ship import (
     ShipFile,
     get_authenticated_user,
@@ -31,6 +32,7 @@ from app.services.github_ship import (
     steps_as_dict,
 )
 from app.services.plugin_permissions import PluginId, decide
+from app.services.repo_memory import build_repo_summary
 from app.services.secret_guard import assert_clean
 
 router = APIRouter(prefix="/ship", tags=["ship"])
@@ -55,7 +57,14 @@ class ShipRunBody(BaseModel):
     create_pr: bool = True
     pr_title: Optional[str] = None
     pr_body: Optional[str] = None
-    once: bool = False  # tek seferlik izin
+    once: bool = False
+
+
+class ShipSwarmBody(BaseModel):
+    instruction: str
+    once: bool = False
+    create_pr: bool = True
+    branch: Optional[str] = None
 
 
 async def get_current_user(
@@ -181,7 +190,10 @@ async def set_default_repo(
 
 
 @router.delete("/disconnect")
-async def disconnect(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def disconnect(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     user.github_access_token = None
     user.github_username = None
     user.github_default_repo = None
@@ -267,6 +279,121 @@ async def ship_run(
         "pr_number": result.pr_number,
         "html_url": result.html_url,
         "error": result.error,
+        "token_cost": SHIP_TOKEN_COST if result.ok else 0,
+        "tokens": remaining,
+        "repo": repo,
+    }
+
+
+@router.post("/run-swarm")
+async def ship_run_swarm(
+    body: ShipSwarmBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """PM → Coder → Security → GitHub PR (+ events izlenebilirlik)."""
+    token = getattr(user, "github_access_token", None)
+    repo = getattr(user, "github_default_repo", None)
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub bağlı değil — Eklentiler → Kur")
+    if not repo:
+        raise HTTPException(status_code=400, detail="Varsayılan repo seç — Eklentiler")
+
+    if user.tokens < SHIP_TOKEN_COST:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Ship {SHIP_TOKEN_COST} token. Kalan: {user.tokens}",
+        )
+
+    grant = await _get_grant(db, user.id, PluginId.GITHUB_SHIP.value, repo)
+    decision = decide(
+        grant.mode if grant else None,
+        PluginId.GITHUB_SHIP.value,
+        repo,
+        once_token_valid=body.once,
+    )
+    if decision.needs_prompt:
+        return {
+            "ok": False,
+            "needs_prompt": True,
+            "message": decision.message,
+            "plugin": PluginId.GITHUB_SHIP.value,
+            "scope": repo,
+            "events": [],
+            "steps": [],
+            "tokens": user.tokens,
+            "token_cost": 0,
+        }
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.message)
+
+    repo_context = f"Repo: {repo}"
+    try:
+        summary = await build_repo_summary(token, repo)
+        repo_context = summary.get("context_blob") or repo_context
+    except Exception:
+        pass
+
+    swarm = await run_ship_swarm(
+        instruction=body.instruction,
+        repo_context=repo_context,
+        plan_tier=user.plan or "free",
+    )
+
+    events = [
+        {
+            "agent": e.agent,
+            "step": e.step,
+            "status": e.status,
+            "detail": e.detail,
+        }
+        for e in swarm.events
+    ]
+
+    if not swarm.ok or not swarm.files:
+        return {
+            "ok": False,
+            "needs_prompt": False,
+            "error": swarm.error or "Ajan hattı dosya üretmedi",
+            "events": events,
+            "plan": swarm.plan,
+            "steps": [],
+            "tokens": user.tokens,
+            "token_cost": 0,
+            "repo": repo,
+        }
+
+    branch = body.branch or f"nexora/ship-{secrets.token_hex(3)}"
+    files = [ShipFile(path=f["path"], content=f["content"]) for f in swarm.files]
+
+    result = await run_ship(
+        token=token,
+        repo_full_name=repo,
+        files=files,
+        commit_message=swarm.pr_title or body.instruction[:72],
+        branch=branch,
+        create_pr=body.create_pr,
+        pr_title=swarm.pr_title,
+        pr_body=swarm.pr_body,
+    )
+
+    remaining = user.tokens
+    if result.ok:
+        remaining = await deduct_tokens(user.email, SHIP_TOKEN_COST, db)
+
+    return {
+        "ok": result.ok,
+        "needs_prompt": False,
+        "events": events,
+        "plan": swarm.plan,
+        "steps": steps_as_dict(result),
+        "branch": result.branch,
+        "commit_sha": result.commit_sha,
+        "pr_url": result.pr_url,
+        "pr_number": result.pr_number,
+        "html_url": result.html_url,
+        "error": result.error or swarm.error,
+        "files": [{"path": f["path"]} for f in swarm.files],
         "token_cost": SHIP_TOKEN_COST if result.ok else 0,
         "tokens": remaining,
         "repo": repo,
