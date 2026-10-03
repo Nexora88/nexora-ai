@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="Nexora AI — Hybrid intelligence · Ship · Plugins",
+    description="Nexora AI — Hybrid intelligence · Ship · Plugins · Index",
     version="0.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -46,7 +46,7 @@ app.add_middleware(
         "https://www.nexoraai.com",
         "https://nexora-ai-dun.vercel.app",
     ],
-    allow_origin_regex=r"https://.*\\.vercel\\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,8 +72,14 @@ async def root():
         "status": "online",
         "docs": "/docs",
         "modules": [
-            "auth", "chat", "market", "media",
-            "payments", "ship", "permissions", "plugins",
+            "auth",
+            "chat",
+            "market",
+            "media",
+            "payments",
+            "ship",
+            "permissions",
+            "plugins",
         ],
     }
 
