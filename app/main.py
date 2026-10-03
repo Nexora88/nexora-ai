@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="Nexora AI — Hybrid intelligence · Ship · Plugins · Data · Intelligence · Future",
+    description="Nexora AI — Hybrid intelligence · Ship · Plugins",
     version="0.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -46,23 +46,18 @@ app.add_middleware(
         "https://www.nexoraai.com",
         "https://nexora-ai-dun.vercel.app",
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\\.vercel\\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Core
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(market.router, prefix="/api/v1")
 app.include_router(media.router, prefix="/api/v1")
-
-# Payments
 app.include_router(payments.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
-
-# Devrim katmanı
 app.include_router(ship.router, prefix="/api/v1")
 app.include_router(permissions.router, prefix="/api/v1")
 app.include_router(plugins.router, prefix="/api/v1")
@@ -77,12 +72,8 @@ async def root():
         "status": "online",
         "docs": "/docs",
         "modules": [
-            "chat",
-            "market",
-            "media",
-            "ship",
-            "permissions",
-            "plugins",
+            "auth", "chat", "market", "media",
+            "payments", "ship", "permissions", "plugins",
         ],
     }
 
