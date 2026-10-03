@@ -31,3 +31,6 @@ Thumbs.db
 
 # Local-only deployment API source
 /api/
+
+# Local runtime tunnel/tooling
+/tools/

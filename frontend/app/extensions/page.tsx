@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API = process.env.NEXT_PUBLIC_API_URL || "https://old-cougars-fold.loca.lt/api/v1";
 
 type Repo = { full_name: string; private?: boolean; default_branch?: string };
 type Grant = { plugin: string; scope: string; mode: string };
