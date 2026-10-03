@@ -4,6 +4,31 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+const IS_LOCAL_BACKEND = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
+async function localPasswordHash(value: string) {
+  const data = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function localAuth(mode: "login" | "register", email: string, password: string, fullName: string) {
+  const key = "nexora_local_accounts";
+  const accounts: Record<string, { password: string; fullName: string; createdAt: string }> = JSON.parse(localStorage.getItem(key) || "{}");
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || !password) throw new Error("E-posta ve şifre gerekli.");
+  if (mode === "register") {
+    if (accounts[normalized]) throw new Error("Bu e-posta bu tarayıcıda zaten kayıtlı.");
+    accounts[normalized] = { password: await localPasswordHash(password), fullName: fullName.trim(), createdAt: new Date().toISOString() };
+    localStorage.setItem(key, JSON.stringify(accounts));
+  } else {
+    const account = accounts[normalized];
+    if (!account || account.password !== await localPasswordHash(password)) throw new Error("E-posta veya şifre hatalı.");
+  }
+  const token = `local-${btoa(encodeURIComponent(normalized))}`;
+  localStorage.setItem("nexora_local_mode", "1");
+  return token;
+}
 
 type Phase = "boot" | "auth" | "app";
 
@@ -86,7 +111,9 @@ export default function Home() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
-    } catch { /* ignore */ }
+    } catch {
+      if (accessToken.startsWith("local-")) setTokensLeft(50);
+    }
   };
 
   const startLoad = () => {
@@ -101,19 +128,42 @@ export default function Home() {
     setError("");
     try {
       if (isLogin) {
-        const res = await axios.post(`${API_URL}/auth/login`, { email, password });
-        const access = res.data.access_token;
-        localStorage.setItem("nexora_token", access);
-        setToken(access);
-        setPhase("app");
-        await fetchMe(access);
+        try {
+          const res = await axios.post(`${API_URL}/auth/login`, { email, password }, { timeout: 5000 });
+          const access = res.data.access_token;
+          localStorage.setItem("nexora_token", access);
+          localStorage.removeItem("nexora_local_mode");
+          setToken(access);
+          setPhase("app");
+          await fetchMe(access);
+        } catch (apiErr: any) {
+          if (!IS_LOCAL_BACKEND || apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404) {
+            const access = await localAuth("login", email, password, fullName);
+            localStorage.setItem("nexora_token", access);
+            setToken(access);
+            setTokensLeft(50);
+            setPhase("app");
+            return;
+          }
+          throw apiErr;
+        }
       } else {
-        await axios.post(`${API_URL}/auth/register`, { email, password, full_name: fullName });
-        setIsLogin(true);
-        setError("Kayıt tamam. 50 token yüklendi — giriş yap.");
+        try {
+          await axios.post(`${API_URL}/auth/register`, { email, password, full_name: fullName }, { timeout: 5000 });
+          setIsLogin(true);
+          setError("Kayıt tamam. 50 token yüklendi — giriş yap.");
+        } catch (apiErr: any) {
+          if (!IS_LOCAL_BACKEND || apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404) {
+            await localAuth("register", email, password, fullName);
+            setIsLogin(true);
+            setError("Hesap bu tarayıcıya kaydedildi. Şimdi giriş yap.");
+            return;
+          }
+          throw apiErr;
+        }
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Bir hata oluştu");
+      setError(err instanceof Error ? err.message : (err.response?.data?.detail || "Bir hata oluştu"));
     }
   };
 
@@ -144,7 +194,8 @@ export default function Home() {
       ]);
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Mesaj gönderilemedi");
+      if (token?.startsWith("local-")) setError("Giriş çalışıyor, ancak AI sunucusu bu Vercel dağıtımında bağlı değil. Backend PC'de yerel çalışıyor.");
+      else setError(err.response?.data?.detail || "Mesaj gönderilemedi");
     } finally {
       setLoading(false);
     }
