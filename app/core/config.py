@@ -10,11 +10,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
 
-    # Production (Vercel) MUST use a persistent PostgreSQL database.
-    # Local development can continue using SQLite.
     DATABASE_URL: Optional[str] = None
 
-    # Never use placeholder secrets in production.
     SECRET_KEY: Optional[str] = None
     JWT_SECRET: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
@@ -23,15 +20,28 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
+    MISTRAL_API_KEY: Optional[str] = None
+    COHERE_API_KEY: Optional[str] = None
+    CEREBRAS_API_KEY: Optional[str] = None
+    TOGETHER_API_KEY: Optional[str] = None
+    DEEPSEEK_API_KEY: Optional[str] = None
+    FIREWORKS_API_KEY: Optional[str] = None
     XAI_API_KEY: Optional[str] = None
-    ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: Optional[str] = None
 
-    # Stripe
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_PRO_PRICE_ID: Optional[str] = None
     STRIPE_ELITE_PRICE_ID: Optional[str] = None
+    STRIPE_PRICE_PRO: Optional[str] = None
+    STRIPE_PRICE_ELITE: Optional[str] = None
+
+    GITHUB_CLIENT_ID: Optional[str] = None
+    GITHUB_CLIENT_SECRET: Optional[str] = None
+    GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/ship/callback"
+    FRONTEND_URL: str = "http://localhost:3000"
+    SHIP_TOKEN_COST: int = 10
 
     FREE_MESSAGES_LIMIT: int = 5
     PRO_MESSAGES_LIMIT: int = 400
@@ -44,13 +54,10 @@ class Settings(BaseSettings):
     )
 
     def validate_production(self) -> None:
-        """Fail fast instead of silently using an ephemeral DB or unsafe secrets."""
         is_vercel = os.getenv("VERCEL") == "1"
         is_production = self.ENVIRONMENT.lower() == "production" or is_vercel
-
         if not is_production:
             return
-
         missing = []
         if not self.DATABASE_URL:
             missing.append("DATABASE_URL")
@@ -58,16 +65,13 @@ class Settings(BaseSettings):
             missing.append("SECRET_KEY")
         if not self.JWT_SECRET:
             missing.append("JWT_SECRET")
-
         if missing:
-            raise RuntimeError(
-                "Production configuration is incomplete. Missing environment variables: "
-                + ", ".join(missing)
-            )
+            raise RuntimeError("Production eksik env: " + ", ".join(missing))
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    settings = Settings()
-    settings.validate_production()
-    return settings
+    s = Settings()
+    if getattr(s, "ENVIRONMENT", "development").lower() == "production" or os.getenv("VERCEL") == "1":
+        s.validate_production()
+    return s
