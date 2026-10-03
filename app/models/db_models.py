@@ -16,18 +16,13 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
 
     plan: Mapped[str] = mapped_column(String(20), default=PlanType.FREE.value)
-
-    # Eski limit alanları (uyumluluk)
     messages_used: Mapped[int] = mapped_column(Integer, default=0)
     messages_limit: Mapped[int] = mapped_column(Integer, default=5)
-
-    # Token ekonomisi — kayıtta 50
     tokens: Mapped[int] = mapped_column(Integer, default=50)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # GitHub Ship eklentisi
     github_access_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
     github_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     github_default_repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -46,12 +41,6 @@ class User(Base):
 
 
 class PluginGrant(Base):
-    """
-    Eklenti izinleri.
-    mode: always | ask | deny
-    scope: repo full_name veya *
-    """
-
     __tablename__ = "plugin_grants"
     __table_args__ = (
         UniqueConstraint("user_id", "plugin", "scope", name="uq_user_plugin_scope"),
