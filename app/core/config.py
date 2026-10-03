@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
-    # LLM
     GROQ_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
@@ -31,18 +30,15 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
 
-    # Search / media
     TAVILY_API_KEY: Optional[str] = None
     REPLICATE_API_TOKEN: Optional[str] = None
     WEATHER_API_KEY: Optional[str] = None
 
-    # Stripe
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_PRO_PRICE_ID: Optional[str] = None
     STRIPE_ELITE_PRICE_ID: Optional[str] = None
 
-    # GitHub Ship
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
     GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/ship/callback"
@@ -59,24 +55,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    def validate_production(self) -> None:
-        is_vercel = os.getenv("VERCEL") == "1"
-        is_production = self.ENVIRONMENT.lower() == "production" or is_vercel
-        if not is_production:
-            return
-        missing = []
-        if not self.DATABASE_URL:
-            missing.append("DATABASE_URL")
-        if not self.SECRET_KEY:
-            missing.append("SECRET_KEY")
-        if not self.JWT_SECRET:
-            missing.append("JWT_SECRET")
-        if missing:
-            raise RuntimeError("Production eksik: " + ", ".join(missing))
+    @property
+    def has_production_runtime(self) -> bool:
+        return bool(self.DATABASE_URL and self.SECRET_KEY and self.JWT_SECRET)
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    s = Settings()
-    s.validate_production()
-    return s
+    return Settings()

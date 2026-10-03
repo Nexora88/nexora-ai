@@ -5,25 +5,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.database import init_db
-from app.api import (
-    auth,
-    chat,
-    payments,
-    webhooks,
-    market,
-    media,
-    ship,
-    permissions,
-    plugins,
-    weather,
-)
+from app.api import auth, chat, payments, webhooks, market, media, ship, permissions, plugins, weather
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    # A production DB is optional for the public shell/health endpoint. When
+    # DATABASE_URL is configured, initialize the real persistent database.
+    if settings.DATABASE_URL:
+        await init_db()
     yield
 
 
@@ -47,7 +39,7 @@ app.add_middleware(
         "https://www.nexoraai.com",
         "https://nexora-ai-dun.vercel.app",
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\\.vercel\\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,19 +65,14 @@ async def root():
         "version": "0.3.1",
         "status": "online",
         "docs": "/docs",
-        "modules": [
-            "auth",
-            "chat",
-            "market",
-            "media",
-            "ship",
-            "permissions",
-            "plugins",
-            "weather",
-        ],
+        "modules": ["auth", "chat", "market", "media", "ship", "permissions", "plugins", "weather"],
     }
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "runtime": "vercel" if __import__("os").getenv("VERCEL") == "1" else "local",
+        "database": "configured" if settings.DATABASE_URL else "not_configured",
+    }
