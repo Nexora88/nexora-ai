@@ -1,6 +1,6 @@
 """
-Nexora AI — Ship API
-GitHub bağlama + varsayılan repo + ship çalıştır (adımlı sonuç)
+Nexora AI — GitHub Ship API
+Bağlantı, repo seçimi, izin + secret guard, adımlı ship (branch/commit/PR)
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import deduct_tokens, get_user_by_email
+from app.api.permissions import _get_grant
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import decode_access_token
@@ -29,10 +30,11 @@ from app.services.github_ship import (
     run_ship,
     steps_as_dict,
 )
+from app.services.plugin_permissions import PluginId, decide
+from app.services.secret_guard import assert_clean
 
 router = APIRouter(prefix="/ship", tags=["ship"])
 settings = get_settings()
-
 SHIP_TOKEN_COST = int(getattr(settings, "SHIP_TOKEN_COST", 10) or 10)
 
 
@@ -53,6 +55,7 @@ class ShipRunBody(BaseModel):
     create_pr: bool = True
     pr_title: Optional[str] = None
     pr_body: Optional[str] = None
+    once: bool = False  # tek seferlik izin
 
 
 async def get_current_user(
@@ -79,9 +82,8 @@ def _oauth_configured() -> bool:
 
 @router.get("/status")
 async def ship_status(user: User = Depends(get_current_user)):
-    connected = bool(getattr(user, "github_access_token", None))
     return {
-        "connected": connected,
+        "connected": bool(getattr(user, "github_access_token", None)),
         "github_username": getattr(user, "github_username", None),
         "default_repo": getattr(user, "github_default_repo", None),
         "ship_token_cost": SHIP_TOKEN_COST,
@@ -91,22 +93,19 @@ async def ship_status(user: User = Depends(get_current_user)):
 
 @router.get("/connect")
 async def ship_connect(user: User = Depends(get_current_user)):
-    """Tarayıcıda açılır — GitHub OAuth."""
     if not _oauth_configured():
-        raise HTTPException(
-            status_code=503,
-            detail="GITHUB_CLIENT_ID / SECRET .env içinde yok",
-        )
+        raise HTTPException(status_code=503, detail="GITHUB_CLIENT_ID / SECRET eksik")
     state = f"{user.id}:{secrets.token_urlsafe(16)}"
-    # state'i basit tutuyoruz; production'da redis/db'ye yaz
     params = {
         "client_id": settings.GITHUB_CLIENT_ID,
         "redirect_uri": settings.GITHUB_REDIRECT_URI,
         "scope": "repo read:user",
         "state": state,
     }
-    url = "https://github.com/login/oauth/authorize?" + urlencode(params)
-    return {"authorize_url": url, "state": state}
+    return {
+        "authorize_url": "https://github.com/login/oauth/authorize?" + urlencode(params),
+        "state": state,
+    }
 
 
 @router.get("/callback")
@@ -117,7 +116,6 @@ async def ship_callback(
 ):
     if not _oauth_configured():
         raise HTTPException(status_code=503, detail="OAuth yapılandırılmamış")
-
     user_id = state.split(":")[0] if state else ""
     if not user_id:
         raise HTTPException(status_code=400, detail="Geçersiz state")
@@ -152,8 +150,7 @@ async def ship_callback(
     user.github_connected_at = datetime.now(timezone.utc)
     await db.commit()
 
-    # Frontend eklentiler sayfasına dön
-    front = getattr(settings, "FRONTEND_URL", "http://localhost:3000") or "http://localhost:3000"
+    front = getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
     return RedirectResponse(f"{front}/extensions?github=connected")
 
 
@@ -161,9 +158,11 @@ async def ship_callback(
 async def ship_repos(user: User = Depends(get_current_user)):
     token = getattr(user, "github_access_token", None)
     if not token:
-        raise HTTPException(status_code=400, detail="Önce GitHub bağla (Eklentiler)")
-    repos = await list_user_repos(token)
-    return {"repos": repos, "default_repo": getattr(user, "github_default_repo", None)}
+        raise HTTPException(status_code=400, detail="Önce GitHub bağla")
+    return {
+        "repos": await list_user_repos(token),
+        "default_repo": getattr(user, "github_default_repo", None),
+    }
 
 
 @router.post("/default-repo")
@@ -203,12 +202,41 @@ async def ship_run(
         raise HTTPException(status_code=400, detail="GitHub bağlı değil — Eklentiler → Kur")
     if not repo:
         raise HTTPException(status_code=400, detail="Varsayılan repo seç — Eklentiler")
+    if not body.files:
+        raise HTTPException(status_code=400, detail="files boş")
 
     if user.tokens < SHIP_TOKEN_COST:
         raise HTTPException(
             status_code=402,
             detail=f"Ship {SHIP_TOKEN_COST} token. Kalan: {user.tokens}",
         )
+
+    file_dicts = [{"path": f.path, "content": f.content} for f in body.files]
+    try:
+        assert_clean(file_dicts)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    grant = await _get_grant(db, user.id, PluginId.GITHUB_SHIP.value, repo)
+    decision = decide(
+        grant.mode if grant else None,
+        PluginId.GITHUB_SHIP.value,
+        repo,
+        once_token_valid=body.once,
+    )
+    if decision.needs_prompt:
+        return {
+            "ok": False,
+            "needs_prompt": True,
+            "message": decision.message,
+            "plugin": PluginId.GITHUB_SHIP.value,
+            "scope": repo,
+            "steps": [],
+            "token_cost": 0,
+            "tokens": user.tokens,
+        }
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.message)
 
     branch = body.branch or f"nexora/ship-{secrets.token_hex(3)}"
     files = [ShipFile(path=f.path, content=f.content) for f in body.files]
@@ -222,10 +250,7 @@ async def ship_run(
         create_pr=body.create_pr,
         pr_title=body.pr_title,
         pr_body=body.pr_body
-        or (
-            f"## Nexora Ship\n\n{body.instruction}\n\n"
-            "Otomatik PR · Data · Intelligence · Future"
-        ),
+        or f"## Nexora Ship\n\n{body.instruction}\n\nData · Intelligence · Future",
     )
 
     remaining = user.tokens
@@ -234,6 +259,7 @@ async def ship_run(
 
     return {
         "ok": result.ok,
+        "needs_prompt": False,
         "steps": steps_as_dict(result),
         "branch": result.branch,
         "commit_sha": result.commit_sha,
@@ -244,4 +270,4 @@ async def ship_run(
         "token_cost": SHIP_TOKEN_COST if result.ok else 0,
         "tokens": remaining,
         "repo": repo,
-  }
+    }
