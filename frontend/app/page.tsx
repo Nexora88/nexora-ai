@@ -107,12 +107,18 @@ export default function Home() {
 
   const fetchMe = async (accessToken: string) => {
     try {
+      if (accessToken.startsWith("local-") && !IS_LOCAL_BACKEND) throw new Error("server-auth-required");
       const res = await axios.get(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
     } catch {
-      if (accessToken.startsWith("local-")) setTokensLeft(50);
+      localStorage.removeItem("nexora_token");
+      localStorage.removeItem("nexora_local_mode");
+      setToken(null);
+      setTokensLeft(null);
+      setPhase("auth");
+      setError("Oturumun süresi dolmuş veya yerel moddaydı. Lütfen sunucu hesabınla tekrar giriş yap.");
     }
   };
 
@@ -137,7 +143,7 @@ export default function Home() {
           setPhase("app");
           await fetchMe(access);
         } catch (apiErr: any) {
-          if (!IS_LOCAL_BACKEND || apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404) {
+          if (IS_LOCAL_BACKEND && (apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404)) {
             const access = await localAuth("login", email, password, fullName);
             localStorage.setItem("nexora_token", access);
             setToken(access);
@@ -153,7 +159,7 @@ export default function Home() {
           setIsLogin(true);
           setError("Kayıt tamam. 50 token yüklendi — giriş yap.");
         } catch (apiErr: any) {
-          if (!IS_LOCAL_BACKEND || apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404) {
+          if (IS_LOCAL_BACKEND && (apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404)) {
             await localAuth("register", email, password, fullName);
             setIsLogin(true);
             setError("Hesap bu tarayıcıya kaydedildi. Şimdi giriş yap.");
@@ -194,8 +200,7 @@ export default function Home() {
       ]);
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
     } catch (err: any) {
-      if (token?.startsWith("local-")) setError("Giriş çalışıyor, ancak AI sunucusu bu Vercel dağıtımında bağlı değil. Backend PC'de yerel çalışıyor.");
-      else setError(err.response?.data?.detail || "Mesaj gönderilemedi");
+      setError(err.response?.data?.detail || "Mesaj gönderilemedi");
     } finally {
       setLoading(false);
     }
