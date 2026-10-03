@@ -7,22 +7,21 @@ settings = get_settings()
 
 
 def get_database_url() -> str:
+    """Return an async SQLAlchemy URL for PostgreSQL in production and SQLite locally."""
     if settings.DATABASE_URL:
         url = settings.DATABASE_URL.strip()
+
+        # Neon/Supabase/Vercel may provide a standard PostgreSQL URL.
         if url.startswith("postgres://"):
-            return "postgresql+asyncpg://" + url[len("postgres://"):]
-        if url.startswith("postgresql://"):
-            return "postgresql+asyncpg://" + url[len("postgresql://"):]
-        if url.startswith("postgresql+psycopg://"):
-            return url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+            url = "postgresql+asyncpg://" + url[len("postgres://"):]
+        elif url.startswith("postgresql://"):
+            url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+        elif url.startswith("postgresql+psycopg://"):
+            url = url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+
         return url
 
-    # Vercel's filesystem is ephemeral/read-only outside /tmp. This fallback
-    # keeps the function importable and lets health/status endpoints work when
-    # no production database has been configured. Auth/data persistence still
-    # requires DATABASE_URL to be supplied by the deployment environment.
-    if os.getenv("VERCEL") == "1":
-        return "sqlite+aiosqlite:////tmp/nexora.db"
+    # Local development only. Production/Vercel is rejected by config validation.
     return "sqlite+aiosqlite:///./nexora.db"
 
 
@@ -54,6 +53,9 @@ async def get_db():
 
 
 async def init_db():
+    # Import models before create_all so their tables are registered
+    # in Base.metadata.
     from app.models import db_models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
