@@ -15,6 +15,7 @@ from app.api import (
     ship,
     permissions,
     plugins,
+    weather,
 )
 
 settings = get_settings()
@@ -28,8 +29,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="Nexora AI — Hybrid intelligence · Ship · Plugins · Index",
-    version="0.3.0",
+    description="Nexora AI — Hybrid intelligence · Ship · Weather · Plugins",
+    version="0.3.1",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -61,6 +62,7 @@ app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(ship.router, prefix="/api/v1")
 app.include_router(permissions.router, prefix="/api/v1")
 app.include_router(plugins.router, prefix="/api/v1")
+app.include_router(weather.router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -68,7 +70,7 @@ async def root():
     return {
         "name": settings.APP_NAME,
         "slogan": "Veri • Zekâ • Gelecek",
-        "version": "0.3.0",
+        "version": "0.3.1",
         "status": "online",
         "docs": "/docs",
         "modules": [
@@ -76,10 +78,10 @@ async def root():
             "chat",
             "market",
             "media",
-            "payments",
             "ship",
             "permissions",
             "plugins",
+            "weather",
         ],
     }
 
