@@ -46,6 +46,7 @@ app.add_middleware(
         "https://nexoraai.com",
         "https://www.nexoraai.com",
         "https://nexora-ai-dun.vercel.app",
+        settings.FRONTEND_URL.rstrip("/"),
     ],
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
