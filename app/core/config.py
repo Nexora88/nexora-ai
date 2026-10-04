@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: Optional[str] = None
     GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/ship/callback"
     FRONTEND_URL: str = "http://localhost:3000"
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
     # Railway injects PORT at runtime; FRONTEND_URL is also used by CORS and OAuth callbacks.
     SHIP_TOKEN_COST: int = 10
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import { supabase, supabaseEnabled } from "../lib/supabase";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "/api/v1").replace(/\/$/, "");
 const IS_LOCAL_BACKEND = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
@@ -57,6 +58,7 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [isLogin, setIsLogin] = useState(true);
+  const [resetMode, setResetMode] = useState(false);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [tokensLeft, setTokensLeft] = useState<number | null>(null);
@@ -79,13 +81,32 @@ export default function Home() {
       setTimeout(() => setBootStep(3), 4000),
       setTimeout(() => setBootStep(4), 6200),
       setTimeout(() => setBootStep(5), 8500),
-      setTimeout(() => {
+      setTimeout(async () => {
+        const recovery = window.location.hash.includes("type=recovery");
+        if (supabaseEnabled && supabase) {
+          const { data } = await supabase.auth.getSession();
+          if (recovery) {
+            setResetMode(true);
+            setPhase("auth");
+            return;
+          }
+          if (data.session) {
+            try {
+              await exchangeSupabaseSession(data.session.access_token);
+              return;
+            } catch {
+              await supabase.auth.signOut();
+            }
+          }
+        }
         const saved = localStorage.getItem("nexora_token");
         if (saved) {
           setToken(saved);
           setPhase("app");
           fetchMe(saved);
-        } else setPhase("auth");
+        } else {
+          setPhase("auth");
+        }
       }, 11000),
     ];
     return () => timers.forEach(clearTimeout);
@@ -104,6 +125,21 @@ export default function Home() {
       clearInterval(clock);
     };
   }, [loading]);
+
+  const exchangeSupabaseSession = async (accessToken: string) => {
+    const res = await axios.post(API_URL + "/auth/supabase", { access_token: accessToken }, { timeout: 10000 });
+    const access = res.data.access_token;
+    if (!access) throw new Error("Nexora session could not be created.");
+    localStorage.setItem("nexora_token", access);
+    localStorage.removeItem("nexora_local_mode");
+    setToken(access);
+    setTokensLeft(res.data.user?.tokens ?? 50);
+    setPhase("app");
+    setResetMode(false);
+    setPassword("");
+    setError("");
+    return access;
+  };
 
   const fetchMe = async (accessToken: string) => {
     try {
@@ -133,9 +169,51 @@ export default function Home() {
   const handleAuth = async () => {
     setError("");
     try {
+      if (resetMode) {
+        if (!supabase) throw new Error("Supabase connection is not configured.");
+        const { error: updateError } = await supabase.auth.updateUser({ password });
+        if (updateError) throw updateError;
+        setResetMode(false);
+        setIsLogin(true);
+        setPassword("");
+        setError("Password updated. Sign in with your new password.");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (supabaseEnabled && supabase) {
+        if (isLogin) {
+          const { data, error: authError } = await supabase.auth.signInWithPassword({
+            email: email.trim().toLowerCase(),
+            password,
+          });
+          if (authError) throw authError;
+          if (!data.session) throw new Error("Supabase session could not be created.");
+          await exchangeSupabaseSession(data.session.access_token);
+        } else {
+          const { data, error: authError } = await supabase.auth.signUp({
+            email: email.trim().toLowerCase(),
+            password,
+            options: {
+              data: { full_name: fullName.trim() || undefined },
+              emailRedirectTo: window.location.origin,
+            },
+          });
+          if (authError) throw authError;
+          if (!data.session) {
+            setIsLogin(true);
+            setPassword("");
+            setError("Account created. Verify your email, then sign in.");
+          } else {
+            await exchangeSupabaseSession(data.session.access_token);
+          }
+        }
+        return;
+      }
+
       if (isLogin) {
         try {
-          const res = await axios.post(`${API_URL}/auth/login`, { email, password }, { timeout: 5000 });
+          const res = await axios.post(API_URL + "/auth/login", { email, password }, { timeout: 5000 });
           const access = res.data.access_token;
           localStorage.setItem("nexora_token", access);
           localStorage.removeItem("nexora_local_mode");
@@ -155,9 +233,9 @@ export default function Home() {
         }
       } else {
         try {
-          const res = await axios.post(`${API_URL}/auth/register`, { email: email.trim().toLowerCase(), password, full_name: fullName.trim() }, { timeout: 15000 });
+          const res = await axios.post(API_URL + "/auth/register", { email: email.trim().toLowerCase(), password, full_name: fullName.trim() }, { timeout: 15000 });
           const access = res.data.access_token;
-          if (!access) throw new Error("Sunucu kayıt yaptı ancak oturum anahtarı döndürmedi.");
+          if (!access) throw new Error("Server registered the account but did not return a session.");
           localStorage.setItem("nexora_token", access);
           localStorage.removeItem("nexora_local_mode");
           setToken(access);
@@ -169,15 +247,32 @@ export default function Home() {
           if (IS_LOCAL_BACKEND && (apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404)) {
             await localAuth("register", email, password, fullName);
             setIsLogin(true);
-            setError("Hesap bu tarayıcıya kaydedildi. Şimdi giriş yap.");
+            setError("Account saved in this browser. Sign in now.");
             return;
           }
           throw apiErr;
         }
       }
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : (err.response?.data?.detail || "Bir hata oluştu"));
+      setError(err instanceof Error ? err.message : (err.response?.data?.detail || "An error occurred"));
     }
+  };
+
+  const requestPasswordReset = async () => {
+    setError("");
+    if (!supabase) {
+      setError("Configure Supabase before using password reset.");
+      return;
+    }
+    if (!email.trim()) {
+      setError("Enter your email address first.");
+      return;
+    }
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: window.location.origin,
+    });
+    if (resetError) setError(resetError.message);
+    else setError("Password reset link sent to your email.");
   };
 
   const sendMessage = async () => {
@@ -365,12 +460,20 @@ export default function Home() {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (supabaseEnabled && supabase) {
+      await supabase.auth.signOut();
+    }
     localStorage.removeItem("nexora_token");
+    localStorage.removeItem("nexora_local_mode");
     setToken(null);
     setMessages([]);
     setTokensLeft(null);
     setPhase("auth");
+    setIsLogin(true);
+    setResetMode(false);
+    setPassword("");
+    setError("");
   };
 
   const shortModel = (m?: string) => {
@@ -456,19 +559,35 @@ export default function Home() {
             <div style={s.statusLine}><span style={s.dot}>●</span> Processing Core RUNNING</div>
           </div>
           <div style={s.authCard}>
-            <div style={s.authLabel}>{isLogin ? "ACCESS CORE" : "CREATE ACCESS"}</div>
-            {!isLogin && (
-              <input placeholder="Ad soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={s.input} />
+            <div style={s.authLabel}>{resetMode ? "RESET ACCESS" : (isLogin ? "ACCESS CORE" : "CREATE ACCESS")}</div>
+            {resetMode ? (
+              <>
+                <input type="password" placeholder="Yeni şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+                {error && <div style={s.error}>{error}</div>}
+                <button onClick={handleAuth} style={s.primaryBtn}>Update Password</button>
+                <div style={s.switch} onClick={() => { setResetMode(false); setIsLogin(true); setError(""); }}>Girişe dön</div>
+              </>
+            ) : (
+              <>
+                {!isLogin && (
+                  <input placeholder="Ad soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={s.input} />
+                )}
+                <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={s.input} />
+                <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+                {error && <div style={s.error}>{error}</div>}
+                <button onClick={handleAuth} style={s.primaryBtn}>
+                  {isLogin ? "Initialize Core" : "Register · 50 Token"}
+                </button>
+                {isLogin && supabaseEnabled && (
+                  <div style={s.switch} onClick={requestPasswordReset}>
+                    Şifreni mi unuttun?
+                  </div>
+                )}
+                <div style={s.switch} onClick={() => { setIsLogin(!isLogin); setError(""); }}>
+                  {isLogin ? "Hesabın yok mu? Kayıt ol" : "Hesabın var mı? Giriş yap"}
+                </div>
+              </>
             )}
-            <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={s.input} />
-            <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
-            {error && <div style={s.error}>{error}</div>}
-            <button onClick={handleAuth} style={s.primaryBtn}>
-              {isLogin ? "Initialize Core" : "Register · 50 Token"}
-            </button>
-            <div style={s.switch} onClick={() => { setIsLogin(!isLogin); setError(""); }}>
-              {isLogin ? "Hesabın yok mu? Kayıt ol" : "Hesabın var mı? Giriş yap"}
-            </div>
           </div>
         </div>
       </div>
