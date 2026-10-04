@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     XAI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
+    OPENWEATHER_API_KEY: Optional[str] = None
+    TOMTOM_API_KEY: Optional[str] = None
+    ORS_API_KEY: Optional[str] = None
+    NASA_API_KEY: Optional[str] = None
+    FINNHUB_API_KEY: Optional[str] = None
+    TWELVEDATA_API_KEY: Optional[str] = None
+    ALPHA_VANTAGE_API_KEY: Optional[str] = None
+    NEWSAPI_KEY: Optional[str] = None
+    GITHUB_APP_ID: Optional[str] = None
+    GITHUB_PRIVATE_KEY: Optional[str] = None
 
     # Search / media
     TAVILY_API_KEY: Optional[str] = None
