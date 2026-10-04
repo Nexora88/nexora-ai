@@ -233,7 +233,7 @@ export default function Home() {
       };
 
       const handleEvent = (raw: string) => {
-        const lines = raw.split("\\n");
+        const lines = raw.split("\n");
         let event = "message";
         let data = "";
         for (const line of lines) {
@@ -260,7 +260,7 @@ export default function Home() {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\\n\\n");
+        const events = buffer.split("\n\n");
         buffer = events.pop() || "";
         for (const event of events) handleEvent(event);
       }
