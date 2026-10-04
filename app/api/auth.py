@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.user import UserCreate, UserLogin, UserPublic, Token, PlanType
+from app.models.user import UserCreate, UserLogin, UserPublic, Token, AuthResponse, PlanType
 from app.models.db_models import User
 from app.core.security import (
     get_password_hash,
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
 
-@router.post("/register", response_model=UserPublic)
+@router.post("/register", response_model=AuthResponse)
 async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == user_in.email))
     if result.scalar_one_or_none():
@@ -42,7 +42,7 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
-    return UserPublic(
+    public_user = UserPublic(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
@@ -53,6 +53,8 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
         is_active=user.is_active,
         created_at=user.created_at,
     )
+    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    return AuthResponse(access_token=access_token, user=public_user)
 
 
 @router.post("/login", response_model=Token)

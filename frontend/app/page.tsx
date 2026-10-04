@@ -155,9 +155,16 @@ export default function Home() {
         }
       } else {
         try {
-          await axios.post(`${API_URL}/auth/register`, { email, password, full_name: fullName }, { timeout: 5000 });
-          setIsLogin(true);
-          setError("Kayıt tamam. 50 token yüklendi — giriş yap.");
+          const res = await axios.post(`${API_URL}/auth/register`, { email: email.trim().toLowerCase(), password, full_name: fullName.trim() }, { timeout: 15000 });
+          const access = res.data.access_token;
+          if (!access) throw new Error("Sunucu kayıt yaptı ancak oturum anahtarı döndürmedi.");
+          localStorage.setItem("nexora_token", access);
+          localStorage.removeItem("nexora_local_mode");
+          setToken(access);
+          setTokensLeft(res.data.user?.tokens ?? 50);
+          setPhase("app");
+          setPassword("");
+          setError("");
         } catch (apiErr: any) {
           if (IS_LOCAL_BACKEND && (apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404)) {
             await localAuth("register", email, password, fullName);
@@ -178,29 +185,90 @@ export default function Home() {
     setShowAttach(false);
     startLoad();
     const newMessages: ChatMsg[] = [...messages, { role: "user", content: message }];
-    setMessages(newMessages);
+    const assistantIndex = newMessages.length;
+    setMessages([...newMessages, { role: "assistant", content: "" }]);
     setMessage("");
+
     try {
-      const res = await axios.post(
-        `${API_URL}/chat`,
-        { messages: newMessages.map((m) => ({ role: m.role, content: m.content })), stream: false },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const clientMs = Date.now() - loadStarted.current;
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: res.data.content,
-          model_used: res.data.model_used,
-          query_type: res.data.query_type,
-          token_cost: res.data.token_cost,
-          latency_ms: res.data.latency_ms || clientMs,
+      const response = await fetch(`${API_URL}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          Accept: "text/event-stream",
         },
-      ]);
-      if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
+        body: JSON.stringify({
+          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+          stream: true,
+        }),
+      });
+
+      if (!response.ok) {
+        let detail = `İstek başarısız (${response.status})`;
+        try {
+          const body = await response.json();
+          detail = body.detail || detail;
+        } catch {}
+        if (response.status === 401) {
+          localStorage.removeItem("nexora_token");
+          setToken(null);
+          setPhase("auth");
+          detail = "Oturum geçersiz. Lütfen tekrar giriş yap.";
+        }
+        throw new Error(detail);
+      }
+
+      if (!response.body) throw new Error("Sunucu stream başlatamadı.");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantText = "";
+      let meta: Partial<ChatMsg> = {};
+      let doneData: any = null;
+
+      const updateAssistant = (content: string) => {
+        assistantText += content;
+        setMessages((prev) => prev.map((m, i) => i === assistantIndex ? { ...m, content: assistantText, ...meta } : m));
+      };
+
+      const handleEvent = (raw: string) => {
+        const lines = raw.split("\\n");
+        let event = "message";
+        let data = "";
+        for (const line of lines) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (!data) return;
+        const parsed = JSON.parse(data);
+        if (event === "meta") {
+          meta = { model_used: parsed.model_used, query_type: parsed.query_type, token_cost: parsed.token_cost };
+        } else if (event === "done") {
+          doneData = parsed;
+          meta = { ...meta, model_used: parsed.model_used, query_type: parsed.query_type, token_cost: parsed.token_cost, latency_ms: parsed.latency_ms };
+          if (typeof parsed.tokens === "number") setTokensLeft(parsed.tokens);
+          setMessages((prev) => prev.map((m, i) => i === assistantIndex ? { ...m, ...meta } : m));
+        } else if (event === "error") {
+          throw new Error(parsed.detail || "Zeka katmanı yanıt veremedi.");
+        } else if (parsed.content) {
+          updateAssistant(parsed.content);
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\\n\\n");
+        buffer = events.pop() || "";
+        for (const event of events) handleEvent(event);
+      }
+      if (buffer.trim()) handleEvent(buffer);
+      if (!assistantText && !doneData) throw new Error("Sunucudan boş yanıt geldi.");
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Mesaj gönderilemedi");
+      setMessages((prev) => prev.filter((_, i) => i !== assistantIndex));
+      setError(err instanceof Error ? err.message : "Mesaj gönderilemedi");
     } finally {
       setLoading(false);
     }

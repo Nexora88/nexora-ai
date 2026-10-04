@@ -92,6 +92,11 @@ async def chat(
     authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
+    from fastapi.responses import StreamingResponse
+    import json
+    import time
+    from litellm import acompletion
+
     user = await get_current_user(authorization, db)
 
     if user.tokens <= 0:
@@ -104,9 +109,8 @@ async def chat(
         {"role": "system", "content": NEXORA_IDENTITY},
         *[m.model_dump() for m in body.messages],
     ]
-
     user_text = body.messages[-1].content if body.messages else ""
-    _, _, estimated_cost, _ = llm_router.resolve(user_text, user.plan)
+    query_type, models, estimated_cost, route_reason = llm_router.resolve(user_text, user.plan)
 
     if user.tokens < estimated_cost:
         raise HTTPException(
@@ -114,31 +118,56 @@ async def chat(
             detail=f"Bu işlem yaklaşık {estimated_cost} token. Kalan: {user.tokens}",
         )
 
-    try:
-        result = await llm_router.chat(
-            messages=messages,
-            plan=user.plan,
-            temperature=body.temperature,
-            max_tokens=body.max_tokens,
-            stream=False,
-        )
+    async def event_stream():
+        started_at = time.perf_counter()
+        full_content = ""
+        selected_model = ""
+        last_error = None
 
-        content = result.response.choices[0].message.content
-        cost = result.token_cost
-        remaining = await deduct_tokens(user.email, cost, db)
+        for model in models:
+            try:
+                selected_model = model
+                response = await acompletion(
+                    model=model,
+                    messages=messages,
+                    temperature=body.temperature,
+                    max_tokens=body.max_tokens,
+                    stream=True,
+                )
 
-        return ChatResponse(
-            content=content,
-            model_used=result.model_used,
-            query_type=result.query_type,
-            remaining=remaining,
-            tokens=remaining,
-            token_cost=cost,
-            latency_ms=getattr(result, "latency_ms", 0) or 0,
-            route_reason=getattr(result, "reason", "") or "",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Zeka katmanı şu an yanıt veremiyor: {str(e)[:140]}",
-        )
+                yield f"event: meta\\ndata: {json.dumps({'model_used': model, 'query_type': query_type, 'token_cost': estimated_cost, 'route_reason': route_reason})}\\n\\n"
+
+                async for chunk in response:
+                    try:
+                        text = chunk.choices[0].delta.content or ""
+                    except (AttributeError, IndexError, TypeError):
+                        text = ""
+
+                    if not text:
+                        continue
+
+                    full_content += text
+                    for char in text:
+                        yield f"data: {json.dumps({'content': char}, ensure_ascii=False)}\\n\\n"
+
+                latency_ms = int((time.perf_counter() - started_at) * 1000)
+                remaining = await deduct_tokens(user.email, estimated_cost, db)
+                yield f"event: done\\ndata: {json.dumps({'content': '', 'tokens': remaining, 'remaining': remaining, 'token_cost': estimated_cost, 'latency_ms': latency_ms, 'model_used': selected_model, 'query_type': query_type, 'route_reason': route_reason})}\\n\\n"
+                yield "event: end\\ndata: {}\\n\\n"
+                return
+            except Exception as exc:
+                last_error = exc
+                continue
+
+        detail = str(last_error)[:180] if last_error else "Model bulunamadı"
+        yield f"event: error\\ndata: {json.dumps({'detail': f'Zeka katmanı şu an yanıt veremiyor: {detail}'}, ensure_ascii=False)}\\n\\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
