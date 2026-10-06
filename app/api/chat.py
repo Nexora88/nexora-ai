@@ -10,6 +10,9 @@ from app.api.auth import get_user_by_email, deduct_tokens
 from app.core.security import decode_access_token
 from app.core.database import get_db
 from app.models.db_models import User, ChatConversation, ChatMessage
+from app.services.weather import weather_card
+from app.api.market import fetch_twelvedata_quote, fetch_twelvedata_series
+import re
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -199,6 +202,60 @@ async def chat(
     user_text = body.messages[-1].content if body.messages else ""
     query_type, models, estimated_cost, route_reason = llm_router.resolve(user_text, user.plan)
 
+    # Agent tools: never let the LLM invent live weather/market values.
+    live_context = []
+    tool_meta = {}
+    weather_match = re.search(
+        r"(?:hava(?:\s+durumu)?|hava)\s*(?:nasıl|durumu)?\s*(?:için|icin|da|de)?\s*([A-Za-zÇĞİÖŞÜçğıöşü .-]{2,40})",
+        user_text,
+        re.IGNORECASE,
+    )
+    if weather_match and any(x in user_text.lower() for x in ("hava", "sıcak", "sicak", "yağmur", "yagmur", "rüzgar", "ruzgar", "hava durumu")):
+        city = weather_match.group(1).strip(" .,-")
+        city = re.split(r"\s+(?:bugün|yarın|yarin|şimdi|simdi|kaç|kac|olacak|olur)\b", city, flags=re.I)[0].strip()
+        if city:
+            try:
+                w = await weather_card(city)
+                if w.get("ok"):
+                    live_context.append(
+                        "CANLI HAVA ARACI SONUCU (Open-Meteo): " + str(w)
+                    )
+                    tool_meta["weather"] = w
+                    route_reason += "|weather_tool"
+            except Exception as exc:
+                live_context.append(f"Hava aracı hata verdi: {str(exc)[:120]}")
+    market_match = re.search(
+        r"\b(?:([A-Z]{1,6})(?::[A-Z]{2,6})?|XU100|BIST ?100|THYAO|ASELS|AKBNK|GARAN|AAPL|TSLA|NVDA|MSFT|AMZN|META|GOOGL)\b",
+        user_text.upper(),
+    )
+    if market_match and any(x in user_text.lower() for x in ("hisse", "borsa", "grafik", "fiyat", "kaç", "kac", "analiz", "bist", "stock", "share", "chart")):
+        ticker = market_match.group(0).upper().replace(" ", "")
+        if ticker == "BIST100":
+            ticker = "XU100"
+        try:
+            q = await fetch_twelvedata_quote(ticker)
+            series = await fetch_twelvedata_series(ticker, "1day", 60)
+            if not q.get("error") and series.get("values"):
+                tool_meta["market"] = {
+                    "symbol": ticker,
+                    "quote": q,
+                    "series": series.get("values", []),
+                    "provider": "twelvedata",
+                }
+                live_context.append(
+                    "CANLI PİYASA ARACI SONUCU (Twelve Data): " + str(tool_meta["market"])
+                )
+                route_reason += "|market_tool"
+        except Exception as exc:
+            live_context.append(f"Piyasa aracı hata verdi: {str(exc)[:120]}")
+
+    if live_context:
+        messages.append({
+            "role": "system",
+            "content": "\n\n".join(live_context) +
+            "\nBu araç verilerini gerçek zamanlı veri olarak kullan; değerleri tahmin etme ve kaynağı belirt."
+        })
+
     if user.tokens < estimated_cost:
         raise HTTPException(
             status_code=402,
@@ -224,7 +281,7 @@ async def chat(
                     full_content = ''
                 if not full_content:
                     raise RuntimeError('Model returned an empty response; trying the next model.')
-                yield f"event: meta\ndata: {json.dumps({'model_used': model, 'query_type': query_type, 'token_cost': estimated_cost, 'route_reason': route_reason})}\n\n"
+                yield f"event: meta\ndata: {json.dumps({'model_used': model, 'query_type': query_type, 'token_cost': estimated_cost, 'route_reason': route_reason, 'tools': tool_meta}, ensure_ascii=False)}\n\n"
                 for char in full_content:
                     yield f"data: {json.dumps({'content': char}, ensure_ascii=False)}\n\n"
 

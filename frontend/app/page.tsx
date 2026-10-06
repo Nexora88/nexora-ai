@@ -56,6 +56,11 @@ export default function Home() {
   const [activePlugin, setActivePlugin] = useState("agent");
   const [marketData, setMarketData] = useState<any>(null);
   const [marketBusy, setMarketBusy] = useState(false);
+  const [marketInterval, setMarketInterval] = useState("1day");
+  const [marketSize, setMarketSize] = useState(60);
+  const [weatherData, setWeatherData] = useState<any>(null);
+  const [weatherCity, setWeatherCity] = useState("");
+  const [weatherBusy, setWeatherBusy] = useState(false);
 
   useEffect(() => {
     const timers = [
@@ -165,13 +170,32 @@ export default function Home() {
       const headers = { Authorization: "Bearer " + token };
       const [q, series] = await Promise.all([
         axios.get(API_URL + "/market/quote", { params: { symbol: ticker }, headers }),
-        axios.get(API_URL + "/market/series", { params: { symbol: ticker, interval: "1day", outputsize: 60 }, headers })
+        axios.get(API_URL + "/market/series", { params: { symbol: ticker, interval: marketInterval, outputsize: marketSize }, headers })
       ]);
       setMarketData({ symbol: ticker, quote: q.data, series: series.data.values || [] });
     } catch (err: any) {
       setError(err.response?.data?.detail || "Piyasa verisi alınamadı");
     } finally {
       setMarketBusy(false);
+    }
+  };
+
+  const loadWeather = async (city?: string) => {
+    const place = (city || weatherCity).trim();
+    if (!place || !token || weatherBusy) return;
+    setWeatherBusy(true);
+    setError("");
+    try {
+      const res = await axios.get(API_URL + "/weather/card", {
+        params: { city: place },
+        headers: { Authorization: "Bearer " + token },
+      });
+      setWeatherData(res.data);
+      if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Hava verisi alınamadı");
+    } finally {
+      setWeatherBusy(false);
     }
   };
 
@@ -307,6 +331,14 @@ export default function Home() {
         const parsed = JSON.parse(data);
         if (event === "meta") {
           meta = { model_used: parsed.model_used, query_type: parsed.query_type, token_cost: parsed.token_cost };
+          if (parsed.tools?.market) {
+            setMarketData(parsed.tools.market);
+            setSymbol(parsed.tools.market.symbol || "");
+          }
+          if (parsed.tools?.weather) {
+            setWeatherData(parsed.tools.weather);
+            setWeatherCity(parsed.tools.weather.city || "");
+          }
         } else if (event === "done") {
           doneData = parsed;
           meta = { ...meta, model_used: parsed.model_used, query_type: parsed.query_type, token_cost: parsed.token_cost, latency_ms: parsed.latency_ms };
@@ -577,6 +609,7 @@ export default function Home() {
           ["memory","⌁","Hafıza","Kalıcı sohbet bağlamı"],
           ["chats","◷","Son Sohbetler","Önceki konuşmalar"],
           ["finance","▥","Finans Terminali","Hisse kartları + grafik"],
+          ["weather","☁","Hava Aracı","Canlı hava + tahmin"],
           ["repo","⌘","Repo Memory","GitHub bağlamı"],
           ["code","</>","Code Index","Kod arama"],
           ["security","◇","Secret Scan","Güvenlik taraması"]
@@ -590,7 +623,25 @@ export default function Home() {
           {conversations.length ? conversations.map((c:any) => <button key={c.id} style={s.historyItem} onClick={() => openConversation(c.id)}>{c.title}</button>) : <small>Henüz kayıtlı sohbet yok.</small>}
         </div>}
         {activePlugin === "memory" && <div style={s.pluginPanel}><div style={s.sideTitle}>HAFIZA</div><small>Hesabına bağlı sohbetler sunucuda saklanır. Eski konuşmalar Son Sohbetler eklentisinden geri yüklenebilir.</small></div>}
-        {activePlugin === "agent" && <div style={s.pluginPanel}><div style={s.sideTitle}>AGENT CORE</div><small>Niyet → model → araç → sonuç. Finans isteklerinde canlı piyasa verisi kullanabilir.</small></div>}
+        {activePlugin === "agent" && <div style={s.pluginPanel}><div style={s.sideTitle}>AGENT CORE</div><small>Niyet → model → araç → sonuç. Hava ve finans sorularında canlı API araçları otomatik devreye girer.</small></div>}
+        {activePlugin === "finance" && <div style={s.pluginPanel}>
+          <div style={s.sideTitle}>FINANS TERMİNALİ</div>
+          <div style={s.quickRow}>
+            {["THYAO","ASELS","AKBNK","GARAN","AAPL","NVDA"].map(t => <button key={t} style={s.quickBtn} onClick={() => { setSymbol(t); loadMarket(t); }}>{t}</button>)}
+          </div>
+          <input value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} placeholder="Sembol" style={{...s.input, marginBottom:8}} onKeyDown={e => e.key === "Enter" && loadMarket()} />
+          <div style={s.quickRow}>
+            {["1day","1h","15min"].map(i => <button key={i} style={{...s.quickBtn,...(marketInterval===i?s.quickActive:{})}} onClick={() => setMarketInterval(i)}>{i}</button>)}
+            <button style={s.quickBtn} onClick={() => loadMarket()}>GRAFİĞİ ÇİZ</button>
+          </div>
+          <small>Canlı fiyat, OHLC, hacim ve zaman serisi Twelve Data'dan alınır.</small>
+        </div>}
+        {activePlugin === "weather" && <div style={s.pluginPanel}>
+          <div style={s.sideTitle}>HAVA ARACI</div>
+          <input value={weatherCity} onChange={e => setWeatherCity(e.target.value)} placeholder="İstanbul" style={{...s.input, marginBottom:8}} onKeyDown={e => e.key === "Enter" && loadWeather()} />
+          <button style={s.quickBtn} onClick={() => loadWeather()}>{weatherBusy ? "VERİ ALINIYOR…" : "CANLI HAVAYI GETİR"}</button>
+          <small>Open-Meteo gerçek zamanlı koşullar ve 3 günlük tahmin sağlar; Nexora sohbet içinde de bu aracı otomatik kullanır.</small>
+        </div>}
       </aside>}
 
       <header style={{...s.header, marginLeft: sidebarOpen ? 280 : 0}}> 
@@ -619,6 +670,13 @@ export default function Home() {
         <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="AAPL / THYAO / BTC" style={{...s.input, marginBottom:0, flex:1}} />
         <button onClick={() => loadMarket()} disabled={marketBusy} style={s.primaryBtnSmall}>{marketBusy ? "…" : "Chart"}</button>
         <button onClick={analyzeMarket} disabled={loading} style={s.primaryBtnSmall}>Agent</button>
+      </div>}
+
+      {weatherData && <div style={{...s.weatherCard, marginLeft: sidebarOpen ? 280 : 0}}>
+        <div style={s.marketHead}><b>{weatherData.city}</b><span>{weatherData.country || "Hava"}</span><button onClick={() => setWeatherData(null)} style={s.ghostBtn}>×</button></div>
+        <div style={s.weatherNow}><b>{weatherData.temp_c}°C</b><span>{weatherData.condition}</span><span>Nem %{weatherData.humidity}</span><span>Rüzgar {weatherData.wind_kmh} km/h</span></div>
+        <div style={s.forecastRow}>{(weatherData.daily || []).map((d:any) => <div key={d.date} style={s.forecastItem}><b>{d.date}</b><span>{d.condition}</span><span>{d.min}° / {d.max}°</span></div>)}</div>
+        <small style={s.chartNote}>Kaynak: Open-Meteo · canlı API</small>
       </div>}
 
       {marketData && <div style={{...s.marketCard, marginLeft: sidebarOpen ? 280 : 0}}>
@@ -724,6 +782,13 @@ const s: { [key: string]: React.CSSProperties } = {
   marketHead: {display:"flex",gap:12,alignItems:"center",marginBottom:10},
   quoteRow: {display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:10},
   chartNote: {color:"#555"},
+  quickRow: {display:"flex",gap:6,flexWrap:"wrap",marginBottom:8},
+  quickBtn: {padding:"6px 8px",border:"1px solid #222",background:"#0B0B14",color:"#aaa",fontSize:10,cursor:"pointer"},
+  quickActive: {borderColor:"#00F0FF",color:"#00F0FF"},
+  weatherCard: {padding:"12px 20px",background:"#090912",borderBottom:"1px solid #171722"},
+  weatherNow: {display:"flex",gap:18,alignItems:"baseline",flexWrap:"wrap",marginBottom:12},
+  forecastRow: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8},
+  forecastItem: {border:"1px solid #171722",padding:"9px",display:"flex",flexDirection:"column",gap:4,color:"#aaa",fontSize:11},
   bootScreen: { minHeight: "100vh", background: "#000", color: "#e8e8e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" },
   bootCenter: { textAlign: "center", maxWidth: 480, padding: 24 },
   bootBrand: { fontSize: 28, fontWeight: 600, letterSpacing: 8, marginBottom: 24 },
