@@ -695,9 +695,16 @@ export default function Home() {
       <main style={{...s.chatArea, marginLeft: sidebarOpen ? 280 : 0}}> 
         {messages.length === 0 && !loading && (
           <div style={s.empty}>
-            <div style={s.emptyTitle}>NEXORA CORE</div>
-            <div style={s.emptySub}>STATUS: ONLINE</div>
-            <div style={s.emptyHint}>Ask. Analyze. Create.</div>
+            <div style={s.heroEyebrow}>NEXORA INTELLIGENCE PLATFORM · 01</div>
+            <div style={s.emptyTitle}>NEXORA</div>
+            <div style={s.heroTitle}>One intelligence layer.<br/>Many worlds of data.</div>
+            <div style={s.emptySub}>AGENT · MEMORY · MARKETS · WEATHER · CODE</div>
+            <div style={s.emptyHint}>Ask a question, bring a dataset, request an analysis, or command the agent to use a live tool.</div>
+            <div style={s.heroGrid}>
+              <div><b>LIVE DATA</b><span>Market & weather APIs</span></div>
+              <div><b>AGENT CORE</b><span>Task routing & model selection</span></div>
+              <div><b>MEMORY</b><span>Persistent conversations</span></div>
+            </div>
           </div>
         )}
 
@@ -770,7 +777,7 @@ function MarketChart({ points }: { points: any[] }) {
 }
 
 const s: { [key: string]: React.CSSProperties } = {
-  sidebar: {position:"fixed",zIndex:30,left:0,top:0,bottom:0,width:280,background:"#08080F",borderRight:"1px solid #171722",padding:"16px 12px",overflowY:"auto"},
+  sidebar: {position:"fixed",zIndex:30,left:0,top:0,bottom:0,width:272,background:"linear-gradient(180deg,#07070B 0%,#0A0A10 55%,#060609 100%)",borderRight:"1px solid rgba(255,255,255,.07)",padding:"18px 12px",overflowY:"auto",boxShadow:"18px 0 60px rgba(0,0,0,.38)"},
   sideTitle: {fontSize:10,letterSpacing:2,color:"#00F0FF",marginBottom:12},
   newChatBtn: {width:"100%",padding:"10px",background:"#0D0D18",border:"1px solid #222",color:"#ddd",textAlign:"left",cursor:"pointer",marginBottom:8},
   pluginItem: {display:"flex",gap:10,width:"100%",padding:"10px",background:"transparent",border:"1px solid transparent",color:"#999",textAlign:"left",cursor:"pointer"},
@@ -796,7 +803,7 @@ const s: { [key: string]: React.CSSProperties } = {
   bootTagline: { color: "#aaa", fontSize: 14, marginTop: 12, letterSpacing: 1 },
   bootLines: { color: "#666", fontSize: 13, lineHeight: 2, textAlign: "left" },
   bootChecks: { color: "#00F0FF", fontSize: 13, lineHeight: 2, textAlign: "left" },
-  page: { minHeight: "100vh", background: "#0D0D1A", color: "#e0e0e0", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", display: "flex", flexDirection: "column" },
+  page: { minHeight: "100vh", background: "radial-gradient(circle at 72% 8%,rgba(0,240,255,.055),transparent 26%),radial-gradient(circle at 82% 72%,rgba(123,44,255,.045),transparent 30%),#050508", color: "#e0e0e0", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", display: "flex", flexDirection: "column", position:"relative",overflow:"hidden" },
   authWrap: { margin: "auto", width: "100%", maxWidth: 440, padding: 24 },
   authHeader: { textAlign: "center", marginBottom: 28 },
   brandBig: { fontSize: 32, fontWeight: 700, letterSpacing: 6 },
@@ -823,9 +830,14 @@ const s: { [key: string]: React.CSSProperties } = {
   marketBar: { display: "flex", gap: 10, padding: "10px 20px", borderBottom: "1px solid #151520" },
   chatArea: { flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 12 },
   empty: { margin: "auto", textAlign: "center", maxWidth: 560 },
-  emptyTitle: { fontSize: 22, letterSpacing: 4, fontWeight: 600 },
-  emptySub: { color: "#00F0FF", fontSize: 11, letterSpacing: 2, marginTop: 8 },
-  emptyHint: { color: "#555", marginTop: 16, fontSize: 14 },
+  heroEyebrow: {fontSize:10,letterSpacing:3,color:"#5E6675",marginBottom:18},
+  emptyTitle: { fontSize: 64, letterSpacing: 10, fontWeight: 800, lineHeight: .95, background:"linear-gradient(180deg,#fff 0%,#7B8596 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" },
+  heroTitle: {fontSize:24,lineHeight:1.25,fontWeight:500,color:"#DCE3EC",marginTop:14,letterSpacing:-.5},
+  emptySub: { color: "#00F0FF", fontSize: 10, letterSpacing: 3, marginTop: 20 },
+  emptyHint: { color: "#626A78", marginTop: 16, fontSize: 13,lineHeight:1.7,maxWidth:620 },
+  heroGrid: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:1,marginTop:34,border:"1px solid rgba(255,255,255,.07)",background:"rgba(255,255,255,.04)",textAlign:"left"},
+  heroGridItem: {},
+
   bubble: { maxWidth: "85%", padding: "12px 14px", border: "1px solid #1a1a1a", background: "#0a0a12" },
   processCard: { borderColor: "rgba(0,240,255,0.4)" },
   bubbleLabel: { fontSize: 10, color: "#00F0FF", letterSpacing: 1, marginBottom: 6 },
