@@ -61,6 +61,8 @@ export default function Home() {
   const [weatherData, setWeatherData] = useState<any>(null);
   const [weatherCity, setWeatherCity] = useState("");
   const [weatherBusy, setWeatherBusy] = useState(false);
+  const [marketIntel, setMarketIntel] = useState<any>(null);
+  const [githubStatus, setGithubStatus] = useState<any>(null);
   const [thinkingWord, setThinkingWord] = useState("NEXORA");
 
   useEffect(() => {
@@ -101,6 +103,8 @@ export default function Home() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, stageIdx, elapsed]);
+
+  useEffect(() => { if (token) loadGithubStatus(); }, [token]);
 
   useEffect(() => {
     if (!loading) return;
@@ -187,6 +191,37 @@ export default function Home() {
     } finally {
       setMarketBusy(false);
     }
+  };
+
+  const loadMarketIntelligence = async (sym?: string) => {
+    const ticker = (sym || symbol).trim().toUpperCase();
+    if (!ticker || !token) return;
+    setMarketBusy(true);
+    setError("");
+    try {
+      const res = await axios.get(API_URL + "/market/intelligence", { params: { symbol: ticker }, headers: { Authorization: "Bearer " + token } });
+      setMarketIntel(res.data);
+      setMarketData({ symbol: ticker, quote: res.data.quote, series: res.data.series, news: res.data.news, dividends: res.data.dividends, sources: res.data.sources });
+      setSymbol(ticker);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Analiz verileri alınamadı");
+    } finally { setMarketBusy(false); }
+  };
+
+  const openGithub = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get(API_URL + "/ship/connect", { headers: { Authorization: "Bearer " + token } });
+      if (res.data.authorize_url) window.location.href = res.data.authorize_url;
+    } catch (err: any) { setError(err.response?.data?.detail || "GitHub bağlantısı başlatılamadı"); }
+  };
+
+  const loadGithubStatus = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get(API_URL + "/ship/status", { headers: { Authorization: "Bearer " + token } });
+      setGithubStatus(res.data);
+    } catch {}
   };
 
   const loadWeather = async (city?: string) => {
@@ -611,20 +646,21 @@ export default function Home() {
       <input ref={fileRef} type="file" accept={acceptTypes} style={{ display: "none" }} onChange={onFileSelected} />
 
       {sidebarOpen && <aside style={s.sidebar}>
-        <div style={s.sideTitle}>NEXORA · EXTENSIONS</div>
-        <button style={s.newChatBtn} onClick={newConversation}>＋ Yeni sohbet</button>
+        <div style={s.sideBrand}><img src="/nexora-logo.png" alt="Nexora" style={s.logoImg} /><div><div style={s.sideBrandName}>NEXORA</div><div style={s.sideBrandSub}>INTELLIGENCE SYSTEM</div></div><span style={s.onlineDot} /></div>
+        <button style={s.newChatBtn} onClick={newConversation}><span>＋</span><b>Yeni çalışma</b><kbd>⌘ K</kbd></button>
         {[
-          ["agent","◈","Nexora Agent","Model + araç + görev"],
-          ["memory","⌁","Hafıza","Kalıcı sohbet bağlamı"],
-          ["chats","◷","Son Sohbetler","Önceki konuşmalar"],
-          ["finance","▥","Finans Terminali","Hisse kartları + grafik"],
-          ["weather","☁","Hava Aracı","Canlı hava + tahmin"],
-          ["repo","⌘","Repo Memory","GitHub bağlamı"],
-          ["code","</>","Code Index","Kod arama"],
-          ["security","◇","Secret Scan","Güvenlik taraması"]
+          ["agent","◈","Nexora Agent","Ask anything"],
+          ["analysis","◌","Analysis Studio","Research · compare · decide"],
+          ["memory","⌁","Memory","Persistent context"],
+          ["chats","◷","History","Your conversations"],
+          ["finance","▥","Markets","Prices · charts · signals"],
+          ["weather","◒","World","Weather · live conditions"],
+          ["repo","⌘","Repo Memory","Understand your codebase"],
+          ["code","</>","Code Index","Search indexed code"],
+          ["security","◇","Security","Secret & risk scan"]
         ].map(([id,icon,name,desc]) => (
-          <button key={id} style={{...s.pluginItem,...(activePlugin===id?s.pluginActive:{})}} onClick={() => setActivePlugin(id)}>
-            <span style={s.pluginIcon}>{icon}</span><span><b>{name}</b><small>{desc}</small></span>
+          <button key={id} className="navItem" style={{...s.pluginItem,...(activePlugin===id?s.pluginActive:{})}} onClick={() => setActivePlugin(id)}>
+            <span style={s.pluginIcon}>{icon}</span><span className="navCopy"><b>{name}</b><small>{desc}</small></span>{activePlugin===id && <span className="navActiveBar" />}
           </button>
         ))}
         {activePlugin === "chats" && <div style={s.pluginPanel}>
@@ -632,25 +668,26 @@ export default function Home() {
           {conversations.length ? conversations.map((c:any) => <button key={c.id} style={s.historyItem} onClick={() => openConversation(c.id)}>{c.title}</button>) : <small>Henüz kayıtlı sohbet yok.</small>}
         </div>}
         {activePlugin === "memory" && <div style={s.pluginPanel}><div style={s.sideTitle}>HAFIZA</div><small>Hesabına bağlı sohbetler sunucuda saklanır. Eski konuşmalar Son Sohbetler eklentisinden geri yüklenebilir.</small></div>}
-        {activePlugin === "agent" && <div style={s.pluginPanel}><div style={s.sideTitle}>AGENT CORE</div><small>Niyet → model → araç → sonuç. Hava ve finans sorularında canlı API araçları otomatik devreye girer.</small></div>}
+        {activePlugin === "agent" && <div style={s.pluginPanel}><div style={s.sideTitle}>AGENT CORE</div><small>Niyet → model → araç → sonuç. Nexora soruyu sınıflandırır, uygun motoru ve canlı aracı seçer.</small></div>}
+        {activePlugin === "analysis" && <div style={s.pluginPanel}><div style={s.sideTitle}>ANALYSIS STUDIO</div><small>Hisse veya şirket yaz. Fiyat serisi, haber akışı, temettü olayları ve web araştırması tek çalışma alanında birleşir.</small></div>}
         {activePlugin === "finance" && <div style={s.pluginPanel}>
-          <div style={s.sideTitle}>FINANS TERMİNALİ</div>
-          <div style={s.quickRow}>
-            {["THYAO","ASELS","AKBNK","GARAN","AAPL","NVDA"].map(t => <button key={t} style={s.quickBtn} onClick={() => { setSymbol(t); loadMarket(t); }}>{t}</button>)}
-          </div>
-          <input value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} placeholder="Sembol" style={{...s.input, marginBottom:8}} onKeyDown={e => e.key === "Enter" && loadMarket()} />
-          <div style={s.quickRow}>
-            {["1day","1h","15min"].map(i => <button key={i} style={{...s.quickBtn,...(marketInterval===i?s.quickActive:{})}} onClick={() => setMarketInterval(i)}>{i}</button>)}
-            <button style={s.quickBtn} onClick={() => loadMarket()}>GRAFİĞİ ÇİZ</button>
-          </div>
-          <small>Canlı fiyat, OHLC, hacim ve zaman serisi Twelve Data'dan alınır.</small>
+          <div style={s.sideTitle}>MARKET INTELLIGENCE</div>
+          <div style={s.quickRow}>{["THYAO","ASELS","AKBNK","GARAN","AAPL","NVDA"].map(t => <button key={t} style={s.quickBtn} onClick={() => { setSymbol(t); loadMarketIntelligence(t); }}>{t}</button>)}</div>
+          <input value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} placeholder="Ticker / symbol" style={{...s.input, marginBottom:8}} onKeyDown={e => e.key === "Enter" && loadMarketIntelligence()} />
+          <button style={s.analysisRunBtn} onClick={() => loadMarketIntelligence()} disabled={marketBusy}>{marketBusy ? "COLLECTING DATA…" : "OPEN INTELLIGENCE"}</button>
+          <small>Fiyat · grafik · haber · temettü · kaynaklar</small>
         </div>}
         {activePlugin === "weather" && <div style={s.pluginPanel}>
-          <div style={s.sideTitle}>HAVA ARACI</div>
+          <div style={s.sideTitle}>WORLD</div>
           <input value={weatherCity} onChange={e => setWeatherCity(e.target.value)} placeholder="İstanbul" style={{...s.input, marginBottom:8}} onKeyDown={e => e.key === "Enter" && loadWeather()} />
-          <button style={s.quickBtn} onClick={() => loadWeather()}>{weatherBusy ? "VERİ ALINIYOR…" : "CANLI HAVAYI GETİR"}</button>
-          <small>Open-Meteo gerçek zamanlı koşullar ve 3 günlük tahmin sağlar; Nexora sohbet içinde de bu aracı otomatik kullanır.</small>
+          <button style={s.quickBtn} onClick={() => loadWeather()}>{weatherBusy ? "COLLECTING…" : "LIVE WEATHER"}</button>
         </div>}
+        <div style={s.sidebarSpacer} />
+        <div style={s.githubCard}>
+          <div style={s.githubTop}><span style={s.githubIcon}>◉</span><div><b>GitHub Workspace</b><small>{githubStatus?.connected ? githubStatus.github_username || "Connected" : "Connect your codebase"}</small></div></div>
+          <button onClick={openGithub} style={githubStatus?.connected ? s.connectedBtn : s.githubBtn}>{githubStatus?.connected ? "Connected · Workspace" : "Connect GitHub"}</button>
+        </div>
+        <div style={s.sideFooter}><span>CORE ONLINE</span><span>·</span><span>{tokensLeft ?? "—"} TOKENS</span></div>
       </aside>}
 
       <header style={{...s.header, marginLeft: sidebarOpen ? 280 : 0}}> 
@@ -661,7 +698,7 @@ export default function Home() {
           {tokensLeft !== null && <div style={s.tokenBadge}>{tokensLeft} token</div>}
         </div>
         <div style={s.headerRight}>
-          <button onClick={() => setShowMarket(!showMarket)} style={s.ghostBtn}>Analyze</button>
+          <button onClick={() => { setActivePlugin("analysis"); setShowMarket(true); }} style={s.analysisTopBtn}><span>◌</span> Analysis Studio <small>LIVE</small></button>
           <button onClick={() => upgrade("pro")} style={s.ghostBtn}>Pro</button>
           <button onClick={() => upgrade("elite")} style={s.ghostBtn}>Elite</button>
           <button onClick={logout} style={s.ghostBtn}>Exit</button>
@@ -669,17 +706,13 @@ export default function Home() {
       </header>
 
       {showMarket && (
-        <div style={s.marketBar}>
-          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Sembol (BTC, ASELSAN…)" style={{ ...s.input, marginBottom: 0, flex: 1 }} onKeyDown={(e) => e.key === "Enter" && analyzeMarket()} />
-          <button onClick={analyzeMarket} disabled={loading} style={s.primaryBtnSmall}>Run</button>
+        <div className="analysisStrip" style={{marginLeft: sidebarOpen ? 280 : 0}}>
+          <div style={s.analysisStripTitle}><span>◌</span><div><b>ANALYSIS STUDIO</b><small>Live research workspace · price · news · dividends · web</small></div></div>
+          <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Enter ticker or company · AAPL / THYAO / NVDA" style={{ ...s.input, marginBottom: 0, flex: 1 }} onKeyDown={(e) => e.key === "Enter" && loadMarketIntelligence()} />
+          <button onClick={() => loadMarketIntelligence()} disabled={marketBusy} style={s.primaryBtnSmall}>{marketBusy ? "Collecting…" : "Collect data"}</button>
+          <button onClick={analyzeMarket} disabled={loading || !symbol.trim()} style={s.analysisActionBtn}>Run agent analysis</button>
         </div>
       )}
-
-      {showMarket && <div style={{...s.marketBar, marginLeft: sidebarOpen ? 280 : 0}}>
-        <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="AAPL / THYAO / BTC" style={{...s.input, marginBottom:0, flex:1}} />
-        <button onClick={() => loadMarket()} disabled={marketBusy} style={s.primaryBtnSmall}>{marketBusy ? "…" : "Chart"}</button>
-        <button onClick={analyzeMarket} disabled={loading} style={s.primaryBtnSmall}>Agent</button>
-      </div>}
 
       {weatherData && <div style={{...s.weatherCard, marginLeft: sidebarOpen ? 280 : 0}}>
         <div style={s.marketHead}><b>{weatherData.city}</b><span>{weatherData.country || "Hava"}</span><button onClick={() => setWeatherData(null)} style={s.ghostBtn}>×</button></div>
@@ -698,7 +731,11 @@ export default function Home() {
           <span>HACİM <b>{marketData.quote?.volume ?? "—"}</b></span>
         </div>
         <MarketChart points={marketData.series || []} />
-        <small style={s.chartNote}>Kaynak: Twelve Data</small>
+        <div className="intelColumns">
+          <div className="intelPanel"><div className="intelLabel">RECENT NEWS</div>{(marketData.news || []).slice(0,4).map((n:any,i:number) => <a key={i} href={n.url || "#"} target="_blank" rel="noreferrer" className="intelNews">{n.headline || "News item"}<small>{n.source || "Source"}</small></a>)}{!(marketData.news || []).length && <small>No news enrichment configured.</small>}</div>
+          <div className="intelPanel"><div className="intelLabel">DIVIDEND CALENDAR</div>{(marketData.dividends || []).slice(0,5).map((d:any,i:number) => <div key={i} className="intelDividend"><b>{d.date || "—"}</b><span>{d.amount ?? "—"}</span></div>)}{!(marketData.dividends || []).length && <small>No dividend events returned.</small>}</div>
+        </div>
+        <small style={s.chartNote}>Sources: {(marketData.sources || ["Twelve Data"]).join(" · ")}</small>
       </div>}
 
       <main style={{...s.chatArea, marginLeft: sidebarOpen ? 280 : 0}}> 
@@ -798,13 +835,29 @@ function MarketChart({ points }: { points: any[] }) {
 }
 
 const s: { [key: string]: React.CSSProperties } = {
-  sidebar: {position:"fixed",zIndex:30,left:0,top:0,bottom:0,width:272,background:"linear-gradient(180deg,#07070B 0%,#0A0A10 55%,#060609 100%)",borderRight:"1px solid rgba(255,255,255,.07)",padding:"18px 12px",overflowY:"auto",boxShadow:"18px 0 60px rgba(0,0,0,.38)"},
-  sideTitle: {fontSize:10,letterSpacing:2,color:"#00F0FF",marginBottom:12},
-  newChatBtn: {width:"100%",padding:"10px",background:"#0D0D18",border:"1px solid #222",color:"#ddd",textAlign:"left",cursor:"pointer",marginBottom:8},
-  pluginItem: {display:"flex",gap:10,width:"100%",padding:"10px",background:"transparent",border:"1px solid transparent",color:"#999",textAlign:"left",cursor:"pointer"},
-  pluginActive: {background:"rgba(0,240,255,.04)",borderColor:"rgba(0,240,255,.2)",color:"#eee"},
-  pluginIcon: {width:24,color:"#00F0FF",fontFamily:"monospace"},
-  pluginPanel: {borderTop:"1px solid #171722",marginTop:10,paddingTop:8,color:"#777",lineHeight:1.5},
+  sidebar: {position:"fixed",zIndex:30,left:0,top:0,bottom:0,width:286,background:"linear-gradient(180deg,#07080C 0%,#0A0B10 46%,#07080C 100%)",borderRight:"1px solid rgba(255,255,255,.075)",padding:"18px 13px 14px",overflowY:"auto",boxShadow:"24px 0 80px rgba(0,0,0,.42)"},
+  sideBrand: {display:"flex",alignItems:"center",gap:10,padding:"3px 8px 20px",borderBottom:"1px solid rgba(255,255,255,.055)",marginBottom:14},
+  logoImg: {width:30,height:30,objectFit:"contain",filter:"invert(1) drop-shadow(0 0 14px rgba(0,240,255,.18))"},
+  sideBrandName: {fontSize:13,fontWeight:800,letterSpacing:3,color:"#F4F7FB"},
+  sideBrandSub: {fontSize:7,letterSpacing:1.8,color:"#5E6675",marginTop:3},
+  onlineDot: {marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:"#5EEAD4",boxShadow:"0 0 10px rgba(94,234,212,.7)"},
+  sideTitle: {fontSize:9,letterSpacing:2,color:"#667080",marginBottom:10},
+  newChatBtn: {width:"100%",height:42,padding:"0 12px",display:"flex",alignItems:"center",gap:10,background:"linear-gradient(180deg,#11141B,#0C0E14)",border:"1px solid rgba(255,255,255,.09)",borderRadius:8,color:"#E8EDF5",textAlign:"left",cursor:"pointer",marginBottom:18,boxShadow:"0 8px 24px rgba(0,0,0,.2)"},
+  pluginItem: {position:"relative",display:"flex",alignItems:"center",gap:11,width:"100%",minHeight:48,padding:"7px 10px",background:"transparent",border:"1px solid transparent",borderRadius:8,color:"#7E8797",textAlign:"left",cursor:"pointer",transition:"all .18s ease"},
+  pluginActive: {background:"linear-gradient(90deg,rgba(255,255,255,.055),rgba(255,255,255,.018))",borderColor:"rgba(255,255,255,.075)",color:"#F2F5FA",boxShadow:"inset 2px 0 0 #55D7E6"},
+  pluginIcon: {width:25,color:"#8D98A9",fontFamily:"ui-monospace,monospace",fontSize:15},
+  pluginPanel: {borderTop:"1px solid rgba(255,255,255,.06)",marginTop:10,paddingTop:12,color:"#788292",lineHeight:1.5},
+  analysisRunBtn: {width:"100%",padding:"9px 10px",border:"1px solid rgba(94,234,212,.28)",background:"rgba(94,234,212,.05)",color:"#B9F6EE",borderRadius:6,fontSize:10,letterSpacing:1,cursor:"pointer"},
+  sidebarSpacer: {flex:1,minHeight:24},
+  githubCard: {padding:"12px",border:"1px solid rgba(255,255,255,.07)",borderRadius:9,background:"linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012))",marginTop:12},
+  githubTop: {display:"flex",gap:9,alignItems:"center",marginBottom:10},
+  githubIcon: {fontSize:13,color:"#C8D0DC"},
+  githubBtn: {width:"100%",padding:"8px",border:"1px solid rgba(255,255,255,.1)",background:"#11141A",color:"#DDE4EE",borderRadius:6,fontSize:10,cursor:"pointer"},
+  connectedBtn: {width:"100%",padding:"8px",border:"1px solid rgba(94,234,212,.2)",background:"rgba(94,234,212,.05)",color:"#9CE8DE",borderRadius:6,fontSize:10,cursor:"pointer"},
+  sideFooter: {display:"flex",gap:6,padding:"12px 5px 2px",fontSize:8,letterSpacing:1.2,color:"#4F5867"},
+  analysisTopBtn: {display:"flex",alignItems:"center",gap:7,padding:"8px 11px",border:"1px solid rgba(94,234,212,.24)",background:"linear-gradient(180deg,rgba(94,234,212,.09),rgba(94,234,212,.025))",color:"#C8F8F2",borderRadius:7,fontSize:11,cursor:"pointer"},
+  analysisStripTitle: {display:"flex",alignItems:"center",gap:9,minWidth:190,color:"#BFEFE9"},
+  analysisActionBtn: {padding:"12px 16px",border:"1px solid rgba(123,44,255,.45)",background:"linear-gradient(135deg,rgba(123,44,255,.18),rgba(0,240,255,.08))",color:"#E6DFFF",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"},
   historyItem: {display:"block",width:"100%",padding:"7px 4px",background:"transparent",border:0,color:"#888",textAlign:"left",cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},
   marketCard: {padding:"12px 20px",background:"#090912",borderBottom:"1px solid #171722"},
   marketHead: {display:"flex",gap:12,alignItems:"center",marginBottom:10},

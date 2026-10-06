@@ -11,6 +11,33 @@ body {
   min-height: 100vh;
 }
 
+.navItem:hover { background: rgba(255,255,255,.035) !important; color: #DDE4EE !important; }
+.navCopy { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.navCopy b { font-size:11px; font-weight:650; letter-spacing:.1px; }
+.navCopy small { font-size:8px; color:#525C6B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.navItemActive .navCopy small { color:#697483; }
+.navItemActive .navGlyph { color:#B7F5F0 !important; }
+.navActiveBar { position:absolute; right:7px; width:3px; height:18px; border-radius:3px; background:#55D7E6; box-shadow:0 0 12px rgba(85,215,230,.55); }
+.newChatBtn kbd { margin-left:auto; font-size:8px; color:#566171; border:1px solid rgba(255,255,255,.08); padding:2px 5px; border-radius:4px; }
+.newChatBtn span { font-size:17px; color:#B8C1CF; }
+.githubTop b { display:block; font-size:10px; color:#D9E0E9; }
+.githubTop small { display:block; margin-top:3px; font-size:8px; color:#586272; }
+.analysisStrip { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid rgba(255,255,255,.07); background:linear-gradient(180deg,rgba(13,15,22,.96),rgba(8,9,14,.92)); box-shadow:0 10px 35px rgba(0,0,0,.22); }
+.analysisStripTitle b { display:block; font-size:10px; letter-spacing:1.5px; }
+.analysisStripTitle small { display:block; margin-top:3px; font-size:8px; color:#5E6878; }
+.intelColumns { display:grid; grid-template-columns:1.4fr 1fr; gap:10px; margin-top:10px; }
+.intelPanel { border:1px solid rgba(255,255,255,.06); background:#07080D; padding:12px; min-height:90px; }
+.intelLabel { font-size:8px; letter-spacing:2px; color:#647080; margin-bottom:9px; }
+.intelNews { display:block; color:#B9C4D3; font-size:10px; line-height:1.4; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.04); text-decoration:none; }
+.intelNews:hover { color:#E8F7F6; }
+.intelNews small { display:block; color:#505B69; margin-top:3px; }
+.intelDividend { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.04); color:#AAB5C4; font-size:10px; }
+.intelDividend span { color:#BDEDE7; }
+@media (max-width: 850px) {
+  .intelColumns { grid-template-columns:1fr; }
+  .analysisStrip { flex-wrap:wrap; }
+}
+
 .nexoraThinking {
   position: fixed;
   inset: 0;

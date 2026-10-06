@@ -333,6 +333,63 @@ async def analyze_market(
         )
 
 
+async def fetch_finnhub_intelligence(symbol: str) -> Dict[str, Any]:
+    """Optional enrichment: recent company news + dividend events when Finnhub is configured."""
+    if not settings.FINNHUB_API_KEY:
+        return {"provider": "finnhub", "configured": False, "news": [], "dividends": []}
+    clean = symbol.upper().strip()
+    try:
+        import datetime as _dt
+        today = _dt.date.today()
+        start = today - _dt.timedelta(days=30)
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            news_res = await client.get(
+                "https://finnhub.io/api/v1/company-news",
+                params={"symbol": clean, "from": start.isoformat(), "to": today.isoformat(), "token": settings.FINNHUB_API_KEY},
+            )
+            news = news_res.json() if news_res.status_code == 200 else []
+            div_res = await client.get(
+                "https://finnhub.io/api/v1/stock/dividend",
+                params={"symbol": clean, "from": today.isoformat(), "to": (today + _dt.timedelta(days=365)).isoformat(), "token": settings.FINNHUB_API_KEY},
+            )
+            dividends = div_res.json() if div_res.status_code == 200 else []
+            return {
+                "provider": "finnhub",
+                "configured": True,
+                "news": [
+                    {"headline": n.get("headline"), "source": n.get("source"), "url": n.get("url"), "datetime": n.get("datetime")}
+                    for n in (news[:8] if isinstance(news, list) else [])
+                ],
+                "dividends": [
+                    {"date": d.get("date"), "amount": d.get("amount"), "symbol": d.get("symbol"), "payDate": d.get("payDate")}
+                    for d in (dividends[:8] if isinstance(dividends, list) else [])
+                ],
+            }
+    except Exception as exc:
+        return {"provider": "finnhub", "configured": True, "news": [], "dividends": [], "error": str(exc)[:120]}
+
+
+@router.get("/intelligence")
+async def market_intelligence(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_current_user(authorization, db)
+    ticker = symbol.upper().strip()
+    quote = await fetch_twelvedata_quote(ticker)
+    series = await fetch_twelvedata_series(ticker, "1day", 90)
+    enrichment = await fetch_finnhub_intelligence(ticker)
+    return {
+        "symbol": ticker,
+        "quote": quote,
+        "series": series.get("values", []),
+        "news": enrichment.get("news", []),
+        "dividends": enrichment.get("dividends", []),
+        "sources": ["Twelve Data"] + (["Finnhub"] if enrichment.get("configured") else []),
+    }
+
+
 @router.get("/symbols")
 async def list_known_symbols():
     """Desteklenen kripto kısaltmaları (bilgi amaçlı)."""

@@ -157,10 +157,18 @@ async def ship_callback(
     user.github_access_token = access
     user.github_username = gh_user.get("login")
     user.github_connected_at = datetime.now(timezone.utc)
+    if not getattr(user, "github_default_repo", None):
+        try:
+            repos = await list_user_repos(access)
+            if repos:
+                first = repos[0]
+                user.github_default_repo = first.get("full_name") or first.get("name")
+        except Exception:
+            pass
     await db.commit()
 
     front = getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
-    return RedirectResponse(f"{front}/extensions?github=connected")
+    return RedirectResponse(f"{front}/?github=connected")
 
 
 @router.get("/repos")

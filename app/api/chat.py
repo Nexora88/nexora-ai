@@ -11,8 +11,10 @@ from app.core.security import decode_access_token
 from app.core.database import get_db
 from app.models.db_models import User, ChatConversation, ChatMessage
 from app.services.weather import weather_card
-from app.api.market import fetch_twelvedata_quote, fetch_twelvedata_series
+from app.api.market import fetch_twelvedata_quote, fetch_twelvedata_series, fetch_finnhub_intelligence
+from app.core.config import get_settings
 import re
+import httpx
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -236,11 +238,15 @@ async def chat(
         try:
             q = await fetch_twelvedata_quote(ticker)
             series = await fetch_twelvedata_series(ticker, "1day", 60)
+            fin = await fetch_finnhub_intelligence(ticker)
             if not q.get("error") and series.get("values"):
                 tool_meta["market"] = {
                     "symbol": ticker,
                     "quote": q,
                     "series": series.get("values", []),
+                    "news": fin.get("news", []),
+                    "dividends": fin.get("dividends", []),
+                    "sources": ["Twelve Data"] + (["Finnhub"] if fin.get("configured") else []),
                     "provider": "twelvedata",
                 }
                 live_context.append(
@@ -249,6 +255,29 @@ async def chat(
                 route_reason += "|market_tool"
         except Exception as exc:
             live_context.append(f"Piyasa aracı hata verdi: {str(exc)[:120]}")
+
+    # Web research: route explicit/current-news/source/link questions to Tavily when configured.
+    settings = get_settings()
+    search_terms = ("internette", "internette ara", "webde ara", "araştır", "arastir", "son haber", "haberleri", "kaynak", "link", "güncel", "guncel", "bugün", "bugun")
+    if any(term in user_text.lower() for term in search_terms) and settings.TAVILY_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                sr = await client.post(
+                    "https://api.tavily.com/search",
+                    json={"api_key": settings.TAVILY_API_KEY, "query": user_text, "search_depth": "advanced", "max_results": 6, "include_answer": True},
+                )
+                if sr.status_code < 300:
+                    sd = sr.json()
+                    results = sd.get("results", [])
+                    web_pack = {
+                        "answer": sd.get("answer"),
+                        "results": [{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:900]} for x in results],
+                    }
+                    tool_meta["web"] = web_pack
+                    live_context.append("CANLI WEB ARAŞTIRMA (Tavily): " + str(web_pack))
+                    route_reason += "|web_search"
+        except Exception as exc:
+            live_context.append(f"Web arama aracı hata verdi: {str(exc)[:120]}")
 
     if live_context:
         messages.append({
