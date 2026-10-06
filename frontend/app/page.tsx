@@ -61,6 +61,15 @@ export default function Home() {
   const [weatherData, setWeatherData] = useState<any>(null);
   const [weatherCity, setWeatherCity] = useState("");
   const [weatherBusy, setWeatherBusy] = useState(false);
+  const [thinkingWord, setThinkingWord] = useState("NEXORA");
+
+  useEffect(() => {
+    if (!loading) return;
+    const words = ["NEXORA","REASONING","MEMORY","SIGNALS","CONTEXT","SYNTHESIS","INTELLIGENCE","LIVE DATA","AGENT CORE"];
+    let i = 0;
+    const timer = setInterval(() => { i = (i + 1) % words.length; setThinkingWord(words[i]); }, 850);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   useEffect(() => {
     const timers = [
@@ -724,6 +733,18 @@ export default function Home() {
         ))}
 
         {loading && (
+          <div className="nexoraThinking" aria-hidden="true">
+            <div className="thinkingGrid" />
+            <div className="thinkingOrb thinkingOrbOne" />
+            <div className="thinkingOrb thinkingOrbTwo" />
+            <div className="thinkingWords">
+              <span>{thinkingWord}</span><span>ANALYZING</span><span>CONNECTING</span><span>SYNTHESIS</span><span>CONTEXT</span><span>MODELS</span><span>SIGNALS</span><span>MEMORY</span>
+            </div>
+            <div className="thinkingBrandMark">N</div>
+          </div>
+        )}
+
+        {loading && (
           <div style={{ ...s.bubble, ...s.processCard, alignSelf: "flex-start" }}>
             <div style={s.bubbleLabel}>NEXORA PROCESS</div>
             <div style={s.stageRow}>
@@ -836,7 +857,7 @@ const s: { [key: string]: React.CSSProperties } = {
   emptySub: { color: "#00F0FF", fontSize: 10, letterSpacing: 3, marginTop: 20 },
   emptyHint: { color: "#626A78", marginTop: 16, fontSize: 13,lineHeight:1.7,maxWidth:620 },
   heroGrid: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:1,marginTop:34,border:"1px solid rgba(255,255,255,.07)",background:"rgba(255,255,255,.04)",textAlign:"left"},
-  heroGridItem: {},
+  heroGridItem: {padding:"18px",background:"rgba(7,8,13,.78)",minHeight:82},
 
   bubble: { maxWidth: "85%", padding: "12px 14px", border: "1px solid #1a1a1a", background: "#0a0a12" },
   processCard: { borderColor: "rgba(0,240,255,0.4)" },

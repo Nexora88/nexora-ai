@@ -10,3 +10,99 @@ body {
   color: #e0e0e0;
   min-height: 100vh;
 }
+
+.nexoraThinking {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(0, 240, 255, .045), transparent 30%),
+    radial-gradient(circle at 75% 25%, rgba(124, 58, 237, .055), transparent 26%),
+    rgba(3, 4, 8, .78);
+  backdrop-filter: blur(1px);
+}
+.thinkingGrid {
+  position: absolute;
+  inset: -30%;
+  opacity: .20;
+  background-image:
+    linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 58px 58px;
+  transform: perspective(700px) rotateX(58deg) translateY(18%);
+  animation: nexoraGrid 14s linear infinite;
+}
+.thinkingWords {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 24px 38px;
+  padding: 12vh 12vw;
+  opacity: .26;
+  font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 3px;
+  color: #9aa5b8;
+  animation: nexoraWords 3.8s ease-in-out infinite;
+}
+.thinkingWords span { white-space: nowrap; }
+.thinkingWords span:nth-child(3n) { color: #8b7cff; }
+.thinkingWords span:nth-child(4n) { color: #48d9e8; }
+.thinkingOrb {
+  position: absolute;
+  width: 38vw;
+  height: 38vw;
+  max-width: 520px;
+  max-height: 520px;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: .13;
+}
+.thinkingOrbOne {
+  left: 15%;
+  top: 18%;
+  background: #00d9ff;
+  animation: nexoraOrbOne 9s ease-in-out infinite;
+}
+.thinkingOrbTwo {
+  right: 10%;
+  bottom: 5%;
+  background: #7c3aed;
+  animation: nexoraOrbTwo 11s ease-in-out infinite;
+}
+.thinkingBrandMark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font: 900 150px/1 Arial, sans-serif;
+  letter-spacing: -14px;
+  color: rgba(255,255,255,.035);
+  text-shadow: 0 0 70px rgba(0,240,255,.12);
+  animation: nexoraMark 2.2s ease-in-out infinite;
+}
+@keyframes nexoraGrid {
+  from { transform: perspective(700px) rotateX(58deg) translateY(18%); }
+  to { transform: perspective(700px) rotateX(58deg) translateY(30%); }
+}
+@keyframes nexoraWords {
+  0%,100% { transform: translateY(10px); opacity: .16; }
+  50% { transform: translateY(-10px); opacity: .30; }
+}
+@keyframes nexoraOrbOne {
+  0%,100% { transform: translate(0,0) scale(1); }
+  50% { transform: translate(12vw,8vh) scale(1.18); }
+}
+@keyframes nexoraOrbTwo {
+  0%,100% { transform: translate(0,0) scale(1); }
+  50% { transform: translate(-10vw,-8vh) scale(1.2); }
+}
+@keyframes nexoraMark {
+  0%,100% { opacity: .45; transform: translate(-50%,-50%) scale(.96); }
+  50% { opacity: .9; transform: translate(-50%,-50%) scale(1.02); }
+}
+
