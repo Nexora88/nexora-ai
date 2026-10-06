@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { supabase, supabaseEnabled } from "../lib/supabase";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "/api/v1").replace(/\/$/, "");
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://nexora-ai-production-3a2e.up.railway.app/api/v1").replace(/\/$/, "");
 const IS_LOCAL_BACKEND = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
 async function localPasswordHash(value: string) {
@@ -17,14 +17,14 @@ async function localAuth(mode: "login" | "register", email: string, password: st
   const key = "nexora_local_accounts";
   const accounts: Record<string, { password: string; fullName: string; createdAt: string }> = JSON.parse(localStorage.getItem(key) || "{}");
   const normalized = email.trim().toLowerCase();
-  if (!normalized || !password) throw new Error("E-posta ve şifre gerekli.");
+  if (!normalized || !password) throw new Error("E-posta ve ÅŸifre gerekli.");
   if (mode === "register") {
-    if (accounts[normalized]) throw new Error("Bu e-posta bu tarayıcıda zaten kayıtlı.");
+    if (accounts[normalized]) throw new Error("Bu e-posta bu tarayÄ±cÄ±da zaten kayÄ±tlÄ±.");
     accounts[normalized] = { password: await localPasswordHash(password), fullName: fullName.trim(), createdAt: new Date().toISOString() };
     localStorage.setItem(key, JSON.stringify(accounts));
   } else {
     const account = accounts[normalized];
-    if (!account || account.password !== await localPasswordHash(password)) throw new Error("E-posta veya şifre hatalı.");
+    if (!account || account.password !== await localPasswordHash(password)) throw new Error("E-posta veya ÅŸifre hatalÄ±.");
   }
   const token = `local-${btoa(encodeURIComponent(normalized))}`;
   localStorage.setItem("nexora_local_mode", "1");
@@ -43,11 +43,11 @@ type ChatMsg = {
 };
 
 const PROCESS_STAGES = [
-  "Sinyal alındı",
-  "Niyet çözülüyor",
-  "Motor seçiliyor",
-  "Muhakeme çalışıyor",
-  "Yanıt hizalanıyor",
+  "Sinyal alÄ±ndÄ±",
+  "Niyet Ã§Ã¶zÃ¼lÃ¼yor",
+  "Motor seÃ§iliyor",
+  "Muhakeme Ã§alÄ±ÅŸÄ±yor",
+  "YanÄ±t hizalanÄ±yor",
 ];
 
 export default function Home() {
@@ -154,7 +154,7 @@ export default function Home() {
       setToken(null);
       setTokensLeft(null);
       setPhase("auth");
-      setError("Oturumun süresi dolmuş veya yerel moddaydı. Lütfen sunucu hesabınla tekrar giriş yap.");
+      setError("Oturumun sÃ¼resi dolmuÅŸ veya yerel moddaydÄ±. LÃ¼tfen sunucu hesabÄ±nla tekrar giriÅŸ yap.");
     }
   };
 
@@ -299,7 +299,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        let detail = `İstek başarısız (${response.status})`;
+        let detail = `Ä°stek baÅŸarÄ±sÄ±z (${response.status})`;
         try {
           const body = await response.json();
           detail = body.detail || detail;
@@ -308,12 +308,12 @@ export default function Home() {
           localStorage.removeItem("nexora_token");
           setToken(null);
           setPhase("auth");
-          detail = "Oturum geçersiz. Lütfen tekrar giriş yap.";
+          detail = "Oturum geÃ§ersiz. LÃ¼tfen tekrar giriÅŸ yap.";
         }
         throw new Error(detail);
       }
 
-      if (!response.body) throw new Error("Sunucu stream başlatamadı.");
+      if (!response.body) throw new Error("Sunucu stream baÅŸlatamadÄ±.");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -345,7 +345,7 @@ export default function Home() {
           if (typeof parsed.tokens === "number") setTokensLeft(parsed.tokens);
           setMessages((prev) => prev.map((m, i) => i === assistantIndex ? { ...m, ...meta } : m));
         } else if (event === "error") {
-          throw new Error(parsed.detail || "Zeka katmanı yanıt veremedi.");
+          throw new Error(parsed.detail || "Zeka katmanÄ± yanÄ±t veremedi.");
         } else if (parsed.content) {
           updateAssistant(parsed.content);
         }
@@ -360,10 +360,10 @@ export default function Home() {
         for (const event of events) handleEvent(event);
       }
       if (buffer.trim()) handleEvent(buffer);
-      if (!assistantText && !doneData) throw new Error("Sunucudan boş yanıt geldi.");
+      if (!assistantText && !doneData) throw new Error("Sunucudan boÅŸ yanÄ±t geldi.");
     } catch (err: any) {
       setMessages((prev) => prev.filter((_, i) => i !== assistantIndex));
-      setError(err instanceof Error ? err.message : "Mesaj gönderilemedi");
+      setError(err instanceof Error ? err.message : "Mesaj gÃ¶nderilemedi");
     } finally {
       setLoading(false);
     }
@@ -384,7 +384,7 @@ export default function Home() {
         ...prev,
         {
           role: "assistant",
-          content: `ANALİZ — ${res.data.symbol}\n\n${res.data.analysis}`,
+          content: `ANALÄ°Z â€” ${res.data.symbol}\n\n${res.data.analysis}`,
           query_type: "finance",
           model_used: res.data.model_used || "nexora-market",
           token_cost: res.data.token_cost ?? 3,
@@ -393,7 +393,7 @@ export default function Home() {
       ]);
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Analiz yapılamadı");
+      setError(err.response?.data?.detail || "Analiz yapÄ±lamadÄ±");
     } finally {
       setLoading(false);
       setSymbol("");
@@ -413,12 +413,12 @@ export default function Home() {
     e.target.value = "";
     if (!file || !token || loading) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: `📎 ${file.name}` }]);
+    setMessages((prev) => [...prev, { role: "user", content: `ğŸ“ ${file.name}` }]);
     startLoad();
 
     const form = new FormData();
     form.append("file", file);
-    form.append("prompt", message.trim() || "Bu içeriği analiz et.");
+    form.append("prompt", message.trim() || "Bu iÃ§eriÄŸi analiz et.");
 
     try {
       const res = await axios.post(`${API_URL}/media/analyze`, form, {
@@ -440,7 +440,7 @@ export default function Home() {
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
       setMessage("");
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Yükleme başarısız");
+      setError(err.response?.data?.detail || "YÃ¼kleme baÅŸarÄ±sÄ±z");
     } finally {
       setLoading(false);
     }
@@ -456,7 +456,7 @@ export default function Home() {
       );
       if (res.data.checkout_url) window.location.href = res.data.checkout_url;
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Ödeme başlatılamadı");
+      setError(err.response?.data?.detail || "Ã–deme baÅŸlatÄ±lamadÄ±");
     }
   };
 
@@ -479,7 +479,7 @@ export default function Home() {
   const shortModel = (m?: string) => {
     if (!m) return "";
     const p = m.split("/").pop() || m;
-    return p.length > 28 ? p.slice(0, 26) + "…" : p;
+    return p.length > 28 ? p.slice(0, 26) + "â€¦" : p;
   };
 
   const typeLabel = (t?: string) => {
@@ -487,9 +487,9 @@ export default function Home() {
       finance: "finans",
       code: "kod",
       deep: "derin",
-      fast: "hızlı",
+      fast: "hÄ±zlÄ±",
       identity: "kimlik",
-      image: "görsel",
+      image: "gÃ¶rsel",
       file: "dosya",
       audio: "ses",
     };
@@ -498,7 +498,7 @@ export default function Home() {
 
   const fmtSec = (ms?: number) => (ms == null ? "" : `${(ms / 1000).toFixed(1)} sn`);
 
-  /* BOOT — aynı */
+  /* BOOT â€” aynÄ± */
   if (phase === "boot") {
     return (
       <div style={s.bootScreen}>
@@ -523,10 +523,10 @@ export default function Home() {
           <div style={s.bootCenter}>
             <div style={s.bootBrand}>SYSTEM BOOT</div>
             <div style={s.bootChecks}>
-              <div>✓ Neural Engine Connected</div>
-              <div>✓ Reasoning Layer Active</div>
-              <div>✓ Knowledge Network Online</div>
-              <div>✓ Intelligence Core Ready</div>
+              <div>âœ“ Neural Engine Connected</div>
+              <div>âœ“ Reasoning Layer Active</div>
+              <div>âœ“ Knowledge Network Online</div>
+              <div>âœ“ Intelligence Core Ready</div>
             </div>
           </div>
         )}
@@ -541,7 +541,7 @@ export default function Home() {
     );
   }
 
-  /* AUTH — aynı */
+  /* AUTH â€” aynÄ± */
   if (phase === "auth") {
     return (
       <div style={s.page}>
@@ -553,19 +553,19 @@ export default function Home() {
           </div>
           <div style={s.statusBox}>
             <div style={s.statusTitle}>SYSTEM STATUS</div>
-            <div style={s.statusLine}><span style={s.dot}>●</span> Neural Engine ONLINE</div>
-            <div style={s.statusLine}><span style={s.dot}>●</span> Reasoning Layer ACTIVE</div>
-            <div style={s.statusLine}><span style={s.dot}>●</span> Knowledge Network CONNECTED</div>
-            <div style={s.statusLine}><span style={s.dot}>●</span> Processing Core RUNNING</div>
+            <div style={s.statusLine}><span style={s.dot}>â—</span> Neural Engine ONLINE</div>
+            <div style={s.statusLine}><span style={s.dot}>â—</span> Reasoning Layer ACTIVE</div>
+            <div style={s.statusLine}><span style={s.dot}>â—</span> Knowledge Network CONNECTED</div>
+            <div style={s.statusLine}><span style={s.dot}>â—</span> Processing Core RUNNING</div>
           </div>
           <div style={s.authCard}>
             <div style={s.authLabel}>{resetMode ? "RESET ACCESS" : (isLogin ? "ACCESS CORE" : "CREATE ACCESS")}</div>
             {resetMode ? (
               <>
-                <input type="password" placeholder="Yeni şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+                <input type="password" placeholder="Yeni ÅŸifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
                 {error && <div style={s.error}>{error}</div>}
                 <button onClick={handleAuth} style={s.primaryBtn}>Update Password</button>
-                <div style={s.switch} onClick={() => { setResetMode(false); setIsLogin(true); setError(""); }}>Girişe dön</div>
+                <div style={s.switch} onClick={() => { setResetMode(false); setIsLogin(true); setError(""); }}>GiriÅŸe dÃ¶n</div>
               </>
             ) : (
               <>
@@ -573,18 +573,18 @@ export default function Home() {
                   <input placeholder="Ad soyad" value={fullName} onChange={(e) => setFullName(e.target.value)} style={s.input} />
                 )}
                 <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={s.input} />
-                <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+                <input type="password" placeholder="Åifre" value={password} onChange={(e) => setPassword(e.target.value)} style={s.input} onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
                 {error && <div style={s.error}>{error}</div>}
                 <button onClick={handleAuth} style={s.primaryBtn}>
-                  {isLogin ? "Initialize Core" : "Register · 50 Token"}
+                  {isLogin ? "Initialize Core" : "Register Â· 50 Token"}
                 </button>
                 {isLogin && supabaseEnabled && (
                   <div style={s.switch} onClick={requestPasswordReset}>
-                    Şifreni mi unuttun?
+                    Åifreni mi unuttun?
                   </div>
                 )}
                 <div style={s.switch} onClick={() => { setIsLogin(!isLogin); setError(""); }}>
-                  {isLogin ? "Hesabın yok mu? Kayıt ol" : "Hesabın var mı? Giriş yap"}
+                  {isLogin ? "HesabÄ±n yok mu? KayÄ±t ol" : "HesabÄ±n var mÄ±? GiriÅŸ yap"}
                 </div>
               </>
             )}
@@ -602,7 +602,7 @@ export default function Home() {
       <header style={s.header}>
         <div style={s.headerLeft}>
           <div style={s.brandSmall}>NEXORA</div>
-          <div style={s.coreBadge}>CORE · ONLINE</div>
+          <div style={s.coreBadge}>CORE Â· ONLINE</div>
           {tokensLeft !== null && <div style={s.tokenBadge}>{tokensLeft} token</div>}
         </div>
         <div style={s.headerRight}>
@@ -615,7 +615,7 @@ export default function Home() {
 
       {showMarket && (
         <div style={s.marketBar}>
-          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Sembol (BTC, ASELSAN…)" style={{ ...s.input, marginBottom: 0, flex: 1 }} onKeyDown={(e) => e.key === "Enter" && analyzeMarket()} />
+          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Sembol (BTC, ASELSANâ€¦)" style={{ ...s.input, marginBottom: 0, flex: 1 }} onKeyDown={(e) => e.key === "Enter" && analyzeMarket()} />
           <button onClick={analyzeMarket} disabled={loading} style={s.primaryBtnSmall}>Run</button>
         </div>
       )}
@@ -636,9 +636,9 @@ export default function Home() {
             {m.role === "assistant" && (
               <div style={s.meta}>
                 {m.query_type && <span>mod: {typeLabel(m.query_type)}</span>}
-                {m.model_used && <span> · motor: {shortModel(m.model_used)}</span>}
-                {m.token_cost != null && <span> · −{m.token_cost} token</span>}
-                {m.latency_ms != null && <span> · {fmtSec(m.latency_ms)}</span>}
+                {m.model_used && <span> Â· motor: {shortModel(m.model_used)}</span>}
+                {m.token_cost != null && <span> Â· âˆ’{m.token_cost} token</span>}
+                {m.latency_ms != null && <span> Â· {fmtSec(m.latency_ms)}</span>}
               </div>
             )}
           </div>
@@ -657,7 +657,7 @@ export default function Home() {
             <div style={s.stageBar}>
               <div style={{ ...s.stageFill, width: `${((stageIdx + 1) / PROCESS_STAGES.length) * 100}%` }} />
             </div>
-            <div style={s.meta}>Sistem çalışıyor · donmadı</div>
+            <div style={s.meta}>Sistem Ã§alÄ±ÅŸÄ±yor Â· donmadÄ±</div>
           </div>
         )}
         <div ref={bottomRef} />
@@ -667,17 +667,17 @@ export default function Home() {
 
       {showAttach && (
         <div style={s.attachMenu}>
-          <button type="button" style={s.attachItem} onClick={() => openFilePicker("image")}>Foto · +2</button>
-          <button type="button" style={s.attachItem} onClick={() => openFilePicker("file")}>Belge · +2</button>
-          <button type="button" style={s.attachItem} onClick={() => openFilePicker("audio")}>Ses · +3</button>
-          <button type="button" style={s.attachItem} onClick={() => { setShowAttach(false); setError("Video yakında · +4 token"); }}>Video · +4</button>
+          <button type="button" style={s.attachItem} onClick={() => openFilePicker("image")}>Foto Â· +2</button>
+          <button type="button" style={s.attachItem} onClick={() => openFilePicker("file")}>Belge Â· +2</button>
+          <button type="button" style={s.attachItem} onClick={() => openFilePicker("audio")}>Ses Â· +3</button>
+          <button type="button" style={s.attachItem} onClick={() => { setShowAttach(false); setError("Video yakÄ±nda Â· +4 token"); }}>Video Â· +4</button>
         </div>
       )}
 
       <div style={s.inputBar}>
         <button type="button" style={s.plusBtn} onClick={() => setShowAttach(!showAttach)} disabled={loading}>+</button>
-        <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()} placeholder="Transmit to core…" disabled={loading} style={{ ...s.input, marginBottom: 0, flex: 1, opacity: loading ? 0.6 : 1 }} />
-        <button onClick={sendMessage} disabled={loading} style={s.primaryBtnSmall}>{loading ? "…" : "Send"}</button>
+        <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()} placeholder="Transmit to coreâ€¦" disabled={loading} style={{ ...s.input, marginBottom: 0, flex: 1, opacity: loading ? 0.6 : 1 }} />
+        <button onClick={sendMessage} disabled={loading} style={s.primaryBtnSmall}>{loading ? "â€¦" : "Send"}</button>
       </div>
     </div>
   );
@@ -737,3 +737,4 @@ const s: { [key: string]: React.CSSProperties } = {
   inputBar: { display: "flex", gap: 10, padding: "14px 20px", borderTop: "1px solid #151520", alignItems: "center" },
   plusBtn: { width: 42, height: 42, border: "1px solid #333", background: "transparent", color: "#00F0FF", fontSize: 22, cursor: "pointer", flexShrink: 0 },
 };
+
