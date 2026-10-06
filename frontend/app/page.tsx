@@ -50,6 +50,12 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
   const loadStarted = useRef(0);
   const [acceptTypes, setAcceptTypes] = useState("*/*");
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [activePlugin, setActivePlugin] = useState("agent");
+  const [marketData, setMarketData] = useState<any>(null);
+  const [marketBusy, setMarketBusy] = useState(false);
 
   useEffect(() => {
     const timers = [
@@ -113,6 +119,7 @@ export default function Home() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (typeof res.data.tokens === "number") setTokensLeft(res.data.tokens);
+      loadConversations(accessToken);
     } catch {
       localStorage.removeItem("nexora_token");
       localStorage.removeItem("nexora_local_mode");
@@ -120,6 +127,51 @@ export default function Home() {
       setTokensLeft(null);
       setPhase("auth");
       setError("Oturumun süresi dolmuş veya yerel moddaydı. Lütfen sunucu hesabınla tekrar giriş yap.");
+    }
+  };
+
+  const loadConversations = async (accessToken = token) => {
+    if (!accessToken) return;
+    try {
+      const res = await axios.get(API_URL + "/chat/conversations", { headers: { Authorization: "Bearer " + accessToken } });
+      setConversations(res.data.conversations || []);
+    } catch {}
+  };
+
+  const openConversation = async (id: string) => {
+    if (!token) return;
+    try {
+      const res = await axios.get(API_URL + "/chat/conversations/" + id, { headers: { Authorization: "Bearer " + token } });
+      setConversationId(id);
+      setMessages(res.data.messages || []);
+      setActivePlugin("agent");
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Sohbet yüklenemedi");
+    }
+  };
+
+  const newConversation = () => {
+    setConversationId(null);
+    setMessages([]);
+    setActivePlugin("agent");
+    setError("");
+  };
+
+  const loadMarket = async (sym?: string) => {
+    const ticker = (sym || symbol).trim().toUpperCase();
+    if (!ticker || !token || marketBusy) return;
+    setMarketBusy(true);
+    try {
+      const headers = { Authorization: "Bearer " + token };
+      const [q, series] = await Promise.all([
+        axios.get(API_URL + "/market/quote", { params: { symbol: ticker }, headers }),
+        axios.get(API_URL + "/market/series", { params: { symbol: ticker, interval: "1day", outputsize: 60 }, headers })
+      ]);
+      setMarketData({ symbol: ticker, quote: q.data, series: series.data.values || [] });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Piyasa verisi alınamadı");
+    } finally {
+      setMarketBusy(false);
     }
   };
 
@@ -210,6 +262,7 @@ export default function Home() {
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           stream: true,
+          conversation_id: conversationId,
         }),
       });
 
@@ -258,7 +311,9 @@ export default function Home() {
           doneData = parsed;
           meta = { ...meta, model_used: parsed.model_used, query_type: parsed.query_type, token_cost: parsed.token_cost, latency_ms: parsed.latency_ms };
           if (typeof parsed.tokens === "number") setTokensLeft(parsed.tokens);
+          if (parsed.conversation_id) setConversationId(parsed.conversation_id);
           setMessages((prev) => prev.map((m, i) => i === assistantIndex ? { ...m, ...meta } : m));
+          loadConversations(token);
         } else if (event === "error") {
           throw new Error(parsed.detail || "Zeka katmanı yanıt veremedi.");
         } else if (parsed.content) {
@@ -514,8 +569,33 @@ export default function Home() {
     <div style={s.page}>
       <input ref={fileRef} type="file" accept={acceptTypes} style={{ display: "none" }} onChange={onFileSelected} />
 
-      <header style={s.header}>
+      {sidebarOpen && <aside style={s.sidebar}>
+        <div style={s.sideTitle}>NEXORA · EXTENSIONS</div>
+        <button style={s.newChatBtn} onClick={newConversation}>＋ Yeni sohbet</button>
+        {[
+          ["agent","◈","Nexora Agent","Model + araç + görev"],
+          ["memory","⌁","Hafıza","Kalıcı sohbet bağlamı"],
+          ["chats","◷","Son Sohbetler","Önceki konuşmalar"],
+          ["finance","▥","Finans Terminali","Hisse kartları + grafik"],
+          ["repo","⌘","Repo Memory","GitHub bağlamı"],
+          ["code","</>","Code Index","Kod arama"],
+          ["security","◇","Secret Scan","Güvenlik taraması"]
+        ].map(([id,icon,name,desc]) => (
+          <button key={id} style={{...s.pluginItem,...(activePlugin===id?s.pluginActive:{})}} onClick={() => setActivePlugin(id)}>
+            <span style={s.pluginIcon}>{icon}</span><span><b>{name}</b><small>{desc}</small></span>
+          </button>
+        ))}
+        {activePlugin === "chats" && <div style={s.pluginPanel}>
+          <div style={s.sideTitle}>SON SOHBETLER</div>
+          {conversations.length ? conversations.map((c:any) => <button key={c.id} style={s.historyItem} onClick={() => openConversation(c.id)}>{c.title}</button>) : <small>Henüz kayıtlı sohbet yok.</small>}
+        </div>}
+        {activePlugin === "memory" && <div style={s.pluginPanel}><div style={s.sideTitle}>HAFIZA</div><small>Hesabına bağlı sohbetler sunucuda saklanır. Eski konuşmalar Son Sohbetler eklentisinden geri yüklenebilir.</small></div>}
+        {activePlugin === "agent" && <div style={s.pluginPanel}><div style={s.sideTitle}>AGENT CORE</div><small>Niyet → model → araç → sonuç. Finans isteklerinde canlı piyasa verisi kullanabilir.</small></div>}
+      </aside>}
+
+      <header style={{...s.header, marginLeft: sidebarOpen ? 280 : 0}}> 
         <div style={s.headerLeft}>
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} style={s.ghostBtn}>{sidebarOpen ? "‹" : "☰"}</button>
           <div style={s.brandSmall}>NEXORA</div>
           <div style={s.coreBadge}>CORE · ONLINE</div>
           {tokensLeft !== null && <div style={s.tokenBadge}>{tokensLeft} token</div>}
@@ -535,7 +615,26 @@ export default function Home() {
         </div>
       )}
 
-      <main style={s.chatArea}>
+      {showMarket && <div style={{...s.marketBar, marginLeft: sidebarOpen ? 280 : 0}}>
+        <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="AAPL / THYAO / BTC" style={{...s.input, marginBottom:0, flex:1}} />
+        <button onClick={() => loadMarket()} disabled={marketBusy} style={s.primaryBtnSmall}>{marketBusy ? "…" : "Chart"}</button>
+        <button onClick={analyzeMarket} disabled={loading} style={s.primaryBtnSmall}>Agent</button>
+      </div>}
+
+      {marketData && <div style={{...s.marketCard, marginLeft: sidebarOpen ? 280 : 0}}>
+        <div style={s.marketHead}><b>{marketData.symbol}</b><span>{marketData.quote?.name || marketData.quote?.exchange || "Market"}</span><button onClick={() => setMarketData(null)} style={s.ghostBtn}>×</button></div>
+        <div style={s.quoteRow}>
+          <span>SON <b>{marketData.quote?.close ?? marketData.quote?.price ?? "—"}</b></span>
+          <span>DEĞİŞİM <b>{marketData.quote?.percent_change != null ? Number(marketData.quote.percent_change).toFixed(2) + "%" : "—"}</b></span>
+          <span>YÜKSEK <b>{marketData.quote?.high ?? "—"}</b></span>
+          <span>DÜŞÜK <b>{marketData.quote?.low ?? "—"}</b></span>
+          <span>HACİM <b>{marketData.quote?.volume ?? "—"}</b></span>
+        </div>
+        <MarketChart points={marketData.series || []} />
+        <small style={s.chartNote}>Kaynak: Twelve Data</small>
+      </div>}
+
+      <main style={{...s.chatArea, marginLeft: sidebarOpen ? 280 : 0}}> 
         {messages.length === 0 && !loading && (
           <div style={s.empty}>
             <div style={s.emptyTitle}>NEXORA CORE</div>
@@ -589,7 +688,7 @@ export default function Home() {
         </div>
       )}
 
-      <div style={s.inputBar}>
+      <div style={{...s.inputBar, marginLeft: sidebarOpen ? 280 : 0}}>
         <button type="button" style={s.plusBtn} onClick={() => setShowAttach(!showAttach)} disabled={loading}>+</button>
         <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()} placeholder="Transmit to core…" disabled={loading} style={{ ...s.input, marginBottom: 0, flex: 1, opacity: loading ? 0.6 : 1 }} />
         <button onClick={sendMessage} disabled={loading} style={s.primaryBtnSmall}>{loading ? "…" : "Send"}</button>
@@ -598,7 +697,33 @@ export default function Home() {
   );
 }
 
+function MarketChart({ points }: { points: any[] }) {
+  const values = points.map(p => Number(p.close)).filter(Number.isFinite);
+  if (values.length < 2) return <div style={{height:140,display:"grid",placeItems:"center",color:"#555"}}>Grafik verisi yok.</div>;
+  const min=Math.min(...values), max=Math.max(...values), w=900, h=220, pad=16;
+  const coords=values.map((v,i) => {
+    const x=pad+(i/(values.length-1))*(w-pad*2);
+    const y=max===min?h/2:pad+(1-(v-min)/(max-min))*(h-pad*2);
+    return x+","+y;
+  }).join(" ");
+  return <svg viewBox={"0 0 "+w+" "+h} preserveAspectRatio="none" style={{width:"100%",height:220,background:"#080811",border:"1px solid #151520"}}>
+    <polyline points={coords} fill="none" stroke="#00F0FF" strokeWidth="2.5" />
+  </svg>;
+}
+
 const s: { [key: string]: React.CSSProperties } = {
+  sidebar: {position:"fixed",zIndex:30,left:0,top:0,bottom:0,width:280,background:"#08080F",borderRight:"1px solid #171722",padding:"16px 12px",overflowY:"auto"},
+  sideTitle: {fontSize:10,letterSpacing:2,color:"#00F0FF",marginBottom:12},
+  newChatBtn: {width:"100%",padding:"10px",background:"#0D0D18",border:"1px solid #222",color:"#ddd",textAlign:"left",cursor:"pointer",marginBottom:8},
+  pluginItem: {display:"flex",gap:10,width:"100%",padding:"10px",background:"transparent",border:"1px solid transparent",color:"#999",textAlign:"left",cursor:"pointer"},
+  pluginActive: {background:"rgba(0,240,255,.04)",borderColor:"rgba(0,240,255,.2)",color:"#eee"},
+  pluginIcon: {width:24,color:"#00F0FF",fontFamily:"monospace"},
+  pluginPanel: {borderTop:"1px solid #171722",marginTop:10,paddingTop:8,color:"#777",lineHeight:1.5},
+  historyItem: {display:"block",width:"100%",padding:"7px 4px",background:"transparent",border:0,color:"#888",textAlign:"left",cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},
+  marketCard: {padding:"12px 20px",background:"#090912",borderBottom:"1px solid #171722"},
+  marketHead: {display:"flex",gap:12,alignItems:"center",marginBottom:10},
+  quoteRow: {display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:10},
+  chartNote: {color:"#555"},
   bootScreen: { minHeight: "100vh", background: "#000", color: "#e8e8e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" },
   bootCenter: { textAlign: "center", maxWidth: 480, padding: 24 },
   bootBrand: { fontSize: 28, fontWeight: 600, letterSpacing: 8, marginBottom: 24 },

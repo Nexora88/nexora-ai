@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +15,10 @@ from app.api.auth import deduct_tokens, get_user_by_email
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.services.llm_router import llm_router
+from app.core.config import get_settings
 
 router = APIRouter(prefix="/market", tags=["market"])
+settings = get_settings()
 
 # Analiz her zaman finans sınıfı → 3 token
 MARKET_TOKEN_COST = 3
@@ -104,6 +106,76 @@ def fmt_num(v: Any, prefix: str = "", digits: int = 2) -> str:
         return "—"
 
 
+async def fetch_twelvedata_quote(symbol: str) -> Dict[str, Any]:
+    if not settings.TWELVEDATA_API_KEY:
+        return {}
+    clean = symbol.upper().strip()
+    params = {"symbol": clean, "apikey": settings.TWELVEDATA_API_KEY}
+    # Borsa İstanbul is explicitly identified by Twelve Data as XIST.
+    if clean in EQUITY_HINTS or (clean.isalpha() and 2 <= len(clean) <= 6 and clean not in CRYPTO_MAP):
+        params["exchange"] = "XIST"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get("https://api.twelvedata.com/quote", params=params)
+            res.raise_for_status()
+            data = res.json()
+            if data.get("status") == "error":
+                return {"provider": "twelvedata", "error": data.get("message", "veri alınamadı")}
+            return {"provider": "twelvedata", **data}
+    except Exception as exc:
+        return {"provider": "twelvedata", "error": str(exc)[:120]}
+
+
+async def fetch_twelvedata_series(symbol: str, interval: str = "1day", outputsize: int = 60) -> Dict[str, Any]:
+    if not settings.TWELVEDATA_API_KEY:
+        return {"provider": "twelvedata", "error": "api_key_missing", "values": []}
+    clean = symbol.upper().strip()
+    params = {
+        "symbol": clean, "interval": interval, "outputsize": min(max(outputsize, 10), 200),
+        "order": "asc", "apikey": settings.TWELVEDATA_API_KEY,
+    }
+    if clean in EQUITY_HINTS or (clean.isalpha() and 2 <= len(clean) <= 6 and clean not in CRYPTO_MAP):
+        params["exchange"] = "XIST"
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            res = await client.get("https://api.twelvedata.com/time_series", params=params)
+            res.raise_for_status()
+            data = res.json()
+            if data.get("status") == "error":
+                return {"provider": "twelvedata", "error": data.get("message", "veri alınamadı"), "values": []}
+            return {"provider": "twelvedata", "meta": data.get("meta", {}), "values": data.get("values", [])}
+    except Exception as exc:
+        return {"provider": "twelvedata", "error": str(exc)[:120], "values": []}
+
+
+@router.get("/quote")
+async def market_quote(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_current_user(authorization, db)
+    quote = await fetch_twelvedata_quote(symbol)
+    if not quote or quote.get("error"):
+        raise HTTPException(status_code=503, detail=quote.get("error", "Piyasa verisi alınamadı") if quote else "Twelve Data yapılandırılmamış")
+    return quote
+
+
+@router.get("/series")
+async def market_series(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    interval: str = Query("1day", pattern="^(1min|5min|15min|30min|1h|2h|4h|1day|1week|1month)$"),
+    outputsize: int = Query(60, ge=10, le=200),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_current_user(authorization, db)
+    data = await fetch_twelvedata_series(symbol, interval, outputsize)
+    if data.get("error"):
+        raise HTTPException(status_code=503, detail=data["error"])
+    return data
+
+
 async def fetch_coingecko(symbol: str) -> Dict[str, Any]:
     coin_id = CRYPTO_MAP.get(symbol.lower().strip())
     if not coin_id:
@@ -149,7 +221,14 @@ def classify_asset(symbol: str) -> str:
 
 def build_data_brief(symbol: str, raw: Dict[str, Any], asset_class: str) -> str:
     lines = [f"Sembol: {symbol}", f"Varlık sınıfı (tahmini): {asset_class}"]
-    if raw.get("price_usd") is not None:
+    if raw.get("close") is not None or raw.get("price") is not None:
+        price = raw.get("close") or raw.get("price")
+        lines.append(f"Son fiyat: {fmt_num(price)}")
+        if raw.get("currency"): lines.append(f"Para birimi: {raw.get('currency')}")
+        if raw.get("percent_change") is not None: lines.append(f"Değişim: {fmt_num(raw.get('percent_change'))}%")
+        if raw.get("volume") is not None: lines.append(f"Hacim: {fmt_num(raw.get('volume'), digits=0)}")
+        lines.append("Kaynak: Twelve Data")
+    elif raw.get("price_usd") is not None:
         lines.append(f"Fiyat USD: {fmt_num(raw.get('price_usd'), '$')}")
         lines.append(f"Fiyat TRY: {fmt_num(raw.get('price_try'), '₺')}")
         ch = raw.get("change_24h_pct")
@@ -207,7 +286,9 @@ async def analyze_market(
 
     symbol = body.symbol.upper().strip()
     asset_class = classify_asset(symbol)
-    raw = await fetch_coingecko(symbol)
+    raw = await fetch_twelvedata_quote(symbol)
+    if not raw or raw.get("error"):
+        raw = await fetch_coingecko(symbol)
     brief = build_data_brief(symbol, raw, asset_class)
     question = (body.question or f"{symbol} için güncel, temkinli piyasa analizi.").strip()
 
