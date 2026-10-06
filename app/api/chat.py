@@ -215,27 +215,18 @@ async def chat(
             try:
                 selected_model = model
                 response = await acompletion(
-                    model=model,
-                    messages=messages,
-                    temperature=body.temperature,
-                    max_tokens=body.max_tokens,
-                    stream=True,
+                    model=model, messages=messages, temperature=body.temperature,
+                    max_tokens=body.max_tokens, stream=False,
                 )
-
+                try:
+                    full_content = (response.choices[0].message.content or '').strip()
+                except (AttributeError, IndexError, TypeError):
+                    full_content = ''
+                if not full_content:
+                    raise RuntimeError('Model returned an empty response; trying the next model.')
                 yield f"event: meta\ndata: {json.dumps({'model_used': model, 'query_type': query_type, 'token_cost': estimated_cost, 'route_reason': route_reason})}\n\n"
-
-                async for chunk in response:
-                    try:
-                        text = chunk.choices[0].delta.content or ""
-                    except (AttributeError, IndexError, TypeError):
-                        text = ""
-
-                    if not text:
-                        continue
-
-                    full_content += text
-                    for char in text:
-                        yield f"data: {json.dumps({'content': char}, ensure_ascii=False)}\n\n"
+                for char in full_content:
+                    yield f"data: {json.dumps({'content': char}, ensure_ascii=False)}\n\n"
 
                 latency_ms = int((time.perf_counter() - started_at) * 1000)
                 remaining = await deduct_tokens(user.email, estimated_cost, db)

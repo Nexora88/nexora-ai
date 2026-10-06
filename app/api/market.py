@@ -112,7 +112,7 @@ async def fetch_twelvedata_quote(symbol: str) -> Dict[str, Any]:
     clean = symbol.upper().strip()
     params = {"symbol": clean, "apikey": settings.TWELVEDATA_API_KEY}
     # Borsa İstanbul is explicitly identified by Twelve Data as XIST.
-    if clean in EQUITY_HINTS or (clean.isalpha() and 2 <= len(clean) <= 6 and clean not in CRYPTO_MAP):
+    if clean in EQUITY_HINTS:
         params["exchange"] = "XIST"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -134,7 +134,7 @@ async def fetch_twelvedata_series(symbol: str, interval: str = "1day", outputsiz
         "symbol": clean, "interval": interval, "outputsize": min(max(outputsize, 10), 200),
         "order": "asc", "apikey": settings.TWELVEDATA_API_KEY,
     }
-    if clean in EQUITY_HINTS or (clean.isalpha() and 2 <= len(clean) <= 6 and clean not in CRYPTO_MAP):
+    if clean in EQUITY_HINTS:
         params["exchange"] = "XIST"
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
