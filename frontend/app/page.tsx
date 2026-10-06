@@ -60,21 +60,10 @@ export default function Home() {
       setTimeout(() => setBootStep(5), 8500),
       setTimeout(async () => {
         const recovery = window.location.hash.includes("type=recovery");
-        if (supabaseEnabled && supabase) {
-          const { data } = await supabase.auth.getSession();
-          if (recovery) {
-            setResetMode(true);
-            setPhase("auth");
-            return;
-          }
-          if (data.session) {
-            try {
-              await exchangeSupabaseSession(data.session.access_token);
-              return;
-            } catch {
-              await supabase.auth.signOut();
-            }
-          }
+        if (recovery && supabaseEnabled && supabase) {
+          setResetMode(true);
+          setPhase("auth");
+          return;
         }
         const saved = localStorage.getItem("nexora_token");
         if (saved) {
@@ -157,36 +146,6 @@ export default function Home() {
         return;
       }
 
-      if (supabaseEnabled && supabase) {
-        if (isLogin) {
-          const { data, error: authError } = await supabase.auth.signInWithPassword({
-            email: email.trim().toLowerCase(),
-            password,
-          });
-          if (authError) throw authError;
-          if (!data.session) throw new Error("Supabase session could not be created.");
-          await exchangeSupabaseSession(data.session.access_token);
-        } else {
-          const { data, error: authError } = await supabase.auth.signUp({
-            email: email.trim().toLowerCase(),
-            password,
-            options: {
-              data: { full_name: fullName.trim() || undefined },
-              emailRedirectTo: window.location.origin,
-            },
-          });
-          if (authError) throw authError;
-          if (!data.session) {
-            setIsLogin(true);
-            setPassword("");
-            setError("Account created. Verify your email, then sign in.");
-          } else {
-            await exchangeSupabaseSession(data.session.access_token);
-          }
-        }
-        return;
-      }
-
       if (isLogin) {
         const res = await axios.post(API_URL + "/auth/login", { email, password }, { timeout: 10000 });
         const access = res.data.access_token;
@@ -207,7 +166,10 @@ export default function Home() {
         setError("");
       }
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : (err.response?.data?.detail || "An error occurred"));
+      setError(
+        err?.response?.data?.detail ||
+        (err instanceof Error ? err.message : "An error occurred")
+      );
     }
   };
 
