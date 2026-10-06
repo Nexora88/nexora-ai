@@ -154,8 +154,10 @@ async def get_me(
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    email = payload.get("email")
-    result = await db.execute(select(User).where(User.email == email))
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    result = await db.execute(select(User).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

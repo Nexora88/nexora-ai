@@ -4,32 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { supabase, supabaseEnabled } from "../lib/supabase";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://nexora-ai-production-3a2e.up.railway.app/api/v1").replace(/\/$/, "");
-const IS_LOCAL_BACKEND = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-
-async function localPasswordHash(value: string) {
-  const data = new TextEncoder().encode(value);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function localAuth(mode: "login" | "register", email: string, password: string, fullName: string) {
-  const key = "nexora_local_accounts";
-  const accounts: Record<string, { password: string; fullName: string; createdAt: string }> = JSON.parse(localStorage.getItem(key) || "{}");
-  const normalized = email.trim().toLowerCase();
-  if (!normalized || !password) throw new Error("E-posta ve şifre gerekli.");
-  if (mode === "register") {
-    if (accounts[normalized]) throw new Error("Bu e-posta bu tarayıcıda zaten kayıtlı.");
-    accounts[normalized] = { password: await localPasswordHash(password), fullName: fullName.trim(), createdAt: new Date().toISOString() };
-    localStorage.setItem(key, JSON.stringify(accounts));
-  } else {
-    const account = accounts[normalized];
-    if (!account || account.password !== await localPasswordHash(password)) throw new Error("E-posta veya şifre hatalı.");
-  }
-  const token = `local-${btoa(encodeURIComponent(normalized))}`;
-  localStorage.setItem("nexora_local_mode", "1");
-  return token;
-}
+const DEFAULT_API_URL = "https://nexora-ai-production-3a2e.up.railway.app/api/v1";
+const configuredApiUrl = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+const API_URL = configuredApiUrl === DEFAULT_API_URL ? configuredApiUrl : DEFAULT_API_URL;
 
 type Phase = "boot" | "auth" | "app";
 
@@ -143,7 +120,6 @@ export default function Home() {
 
   const fetchMe = async (accessToken: string) => {
     try {
-      if (accessToken.startsWith("local-") && !IS_LOCAL_BACKEND) throw new Error("server-auth-required");
       const res = await axios.get(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -212,46 +188,23 @@ export default function Home() {
       }
 
       if (isLogin) {
-        try {
-          const res = await axios.post(API_URL + "/auth/login", { email, password }, { timeout: 5000 });
-          const access = res.data.access_token;
-          localStorage.setItem("nexora_token", access);
-          localStorage.removeItem("nexora_local_mode");
-          setToken(access);
-          setPhase("app");
-          await fetchMe(access);
-        } catch (apiErr: any) {
-          if (IS_LOCAL_BACKEND && (apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404)) {
-            const access = await localAuth("login", email, password, fullName);
-            localStorage.setItem("nexora_token", access);
-            setToken(access);
-            setTokensLeft(50);
-            setPhase("app");
-            return;
-          }
-          throw apiErr;
-        }
+        const res = await axios.post(API_URL + "/auth/login", { email, password }, { timeout: 10000 });
+        const access = res.data.access_token;
+        if (!access) throw new Error("Sunucu oturumu oluşturamadı.");
+        localStorage.setItem("nexora_token", access);
+        setToken(access);
+        setPhase("app");
+        await fetchMe(access);
       } else {
-        try {
-          const res = await axios.post(API_URL + "/auth/register", { email: email.trim().toLowerCase(), password, full_name: fullName.trim() }, { timeout: 15000 });
-          const access = res.data.access_token;
-          if (!access) throw new Error("Server registered the account but did not return a session.");
-          localStorage.setItem("nexora_token", access);
-          localStorage.removeItem("nexora_local_mode");
-          setToken(access);
-          setTokensLeft(res.data.user?.tokens ?? 50);
-          setPhase("app");
-          setPassword("");
-          setError("");
-        } catch (apiErr: any) {
-          if (IS_LOCAL_BACKEND && (apiErr?.code === "ERR_NETWORK" || apiErr?.response?.status === 404)) {
-            await localAuth("register", email, password, fullName);
-            setIsLogin(true);
-            setError("Account saved in this browser. Sign in now.");
-            return;
-          }
-          throw apiErr;
-        }
+        const res = await axios.post(API_URL + "/auth/register", { email: email.trim().toLowerCase(), password, full_name: fullName.trim() }, { timeout: 15000 });
+        const access = res.data.access_token;
+        if (!access) throw new Error("Sunucu hesabı oluşturdu ancak oturum döndürmedi.");
+        localStorage.setItem("nexora_token", access);
+        setToken(access);
+        setTokensLeft(res.data.user?.tokens ?? 50);
+        setPhase("app");
+        setPassword("");
+        setError("");
       }
     } catch (err: any) {
       setError(err instanceof Error ? err.message : (err.response?.data?.detail || "An error occurred"));
