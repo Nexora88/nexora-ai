@@ -212,7 +212,8 @@ async def chat(
     )
     if weather_match and any(x in user_text.lower() for x in ("hava", "sıcak", "sicak", "yağmur", "yagmur", "rüzgar", "ruzgar", "hava durumu")):
         city = weather_match.group(1).strip(" .,-")
-        city = re.split(r"\s+(?:bugün|yarın|yarin|şimdi|simdi|kaç|kac|olacak|olur)\b", city, flags=re.I)[0].strip()
+        city = re.split(r"\s+(?:nasıl|bugün|yarın|yarin|şimdi|simdi|kaç|kac|olacak|olur|durumu)\b", city, flags=re.I)[0].strip()
+        city = re.sub(r"(?i)(?:['’]?(?:da|de|ta|te))$", "", city).strip()
         if city:
             try:
                 w = await weather_card(city)
