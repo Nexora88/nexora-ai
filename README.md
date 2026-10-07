@@ -4,44 +4,83 @@
 
 > Not a chatbot. An intelligence system.
 
-Nexora, sorunun türüne göre doğru motoru seçen **hibrit çoklu-model** zeka sistemidir.  
-Tek bir API sarmalayıcısı değil: **niyet → model havuzu → failover → token ekonomisi**.
+Nexora AI, sorunun türüne göre doğru modeli seçen, canlı veri araçlarına bağlanan ve isteğe bağlı olarak GitHub’a **PR üreten** hibrit bir zeka platformudur.
 
-Kurucu: **Ahmet Eymen Bakraç**
+**Kurucu:** Ahmet Eymen Bakraç  
+
+**Sürüm (backend):** `0.3.1`  
 
 ---
 
-## Ürün özeti
+## Bu proje ne?
 
-| Katman | Ne yapar |
-|--------|----------|
-| **Router** | Soru tipi: `fast` · `code` · `finance` · `deep` · `identity` |
-| **Failover** | Bir sağlayıcı düşünce sıradaki modele geçer |
-| **Token** | Kayıtta 50 token; işlem tipine göre 1–3 (medya ek ücret) |
-| **Chat** | Kimlikli sistem prompt, çok dilli sohbet |
-| **Market** | Kripto veri (CoinGecko) + temkinli analiz |
-| **Media** | Dosya / görsel / ses yükleme (video yakında) |
+Tek bir LLM sarmalayıcısı değil. Ürün üç katmanda çalışır:
 
-**Token maliyeti (metin):** hızlı/kimlik `1` · kod/derin `2` · finans `3`  
-**Medya ek:** görsel/belge `+2` · ses `+3` · video `+4` (planlı)
+1. **Anlama** — niyet sınıflandırma (`fast` · `code` · `finance` · `deep` · `identity`)
+2. **Yönlendirme** — çoklu sağlayıcı havuzu + failover (LiteLLM)
+3. **Eylem** — market / hava / medya / GitHub Ship / code index / izinler
+
+Son geliştirme hattı (özet):
+
+| Commit / yön | İçerik |
+|--------------|--------|
+| Premium workspace | Sinematik thinking / intelligence UI |
+| Agent tools | Canlı weather + market bağlantısı |
+| Ship & plugins | GitHub PR, permissions, code index |
+| Deploy | Frontend Vercel · Backend Railway · Postgres |
+
+---
+
+## Özellikler
+
+### Zeka katmanı
+- Hibrit **LLM router** (Groq, Gemini, OpenRouter, Mistral, Cohere, DeepSeek, …)
+- Otomatik **failover** (model/sağlayıcı düşünce sıradaki)
+- Token ekonomisi (işlem tipine göre maliyet)
+- Kimlik: Nexora / kurucu bilgisi (system prompt)
+
+### Ajan araçları
+- **Market** — kripto / piyasa analizi (CoinGecko vb.)
+- **Weather** — şehir bazlı kart + ajan mesajı (Open-Meteo; yedek key’ler opsiyonel)
+- **Media** — dosya / görsel / ses analizi
+- Sohbette araç seçimi ve stabil ajan yanıtları
+
+### GitHub Ship (geliştirici eklentisi)
+- OAuth ile hesap bağlama
+- Varsayılan repo seçimi
+- Branch + commit + **Pull Request** (doğrudan `main` zorunlu değil)
+- **Multi-agent swarm:** PM → Coder → Security → (self-heal test) → PR raporu
+- Secret Guard (key sızıntısı tarama)
+- Diff preview / repo memory / dinamik **code index**
+
+### Güvenlik & hesap
+- JWT auth · rate limit (production)
+- Güvenlik header’ları (CSP, HSTS, nosniff, …)
+- Plugin izinleri: `always` · `ask` · `deny`
+- Stripe iskeleti (Pro / Elite)
+- Opsiyonel Supabase alanları (`.env.example`)
+
+### Arayüz
+- Next.js premium intelligence workspace
+- Cinematic thinking katmanı
+- `/extensions` — GitHub Kur, izinler, repo index
 
 ---
 
 ## Mimari
 
 ```text
-┌─────────────────┐         ┌──────────────────────────┐
-│  Next.js        │  HTTP   │  FastAPI                 │
-│  (frontend/)    │ ──────► │  /api/v1/*               │
-│  Vercel         │         │  Railway / VPS önerilir  │
-└─────────────────┘         └────────────┬─────────────┘
-                                         │
-                              ┌──────────▼──────────┐
-                              │  SQLite (lokal)     │
-                              │  PostgreSQL (prod)  │
-                              └─────────────────────┘
-                                         │
-                              ┌──────────▼──────────┐
-                              │  LiteLLM Router     │
-                              │  Groq · Gemini · …  │
-                              └─────────────────────┘
+┌──────────────────────┐         ┌─────────────────────────────┐
+│  Next.js (frontend/) │  HTTPS  │  FastAPI (app/)              │
+│  Vercel              │ ──────► │  Railway (Dockerfile)        │
+└──────────────────────┘         └──────────────┬──────────────┘
+                                                │
+                                     ┌──────────▼──────────┐
+                                     │  PostgreSQL (prod)  │
+                                     │  SQLite (local)     │
+                                     └──────────┬──────────┘
+                                                │
+                          ┌─────────────────────┼─────────────────────┐
+                          │                     │                     │
+                    LiteLLM Router        Weather/Market         GitHub API
+                    (multi-model)         (live tools)           (Ship / PR)
